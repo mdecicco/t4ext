@@ -1,0 +1,6 @@
+[submodule "deps/utils"]
+	path = deps/utils
+	url = https://github.com/mdecicco/utils.git
+[submodule "deps/minhook"]
+	path = deps/minhook
+	url = https://github.com/TsudaKageyu/minhook.git

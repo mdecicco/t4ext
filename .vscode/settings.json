@@ -1,0 +1,9 @@
+{
+    "cmake.debugConfig": {
+        "externalConsole": true
+    },
+    "files.associations": {
+        "*.embeddedhtml": "html",
+        "thread": "cpp"
+    }
+}
