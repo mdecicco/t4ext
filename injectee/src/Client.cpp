@@ -3,13 +3,31 @@
 #include <core/CGame.h>
 #include <core/CLevel.h>
 
-#include <utils/Singleton.hpp>
-#include <MinHook.h>
+#include <script/IScriptAPI.hpp>
+#include <script/TypeScriptAPI.h>
+#include <script/Bindings.h>
 
+#include <events/IEvent.h>
+#include <events/Timeout.h>
+
+#include <utils/Singleton.hpp>
+
+#include <MinHook.h>
 #include <windows.h>
+#include <stdarg.h>
 
 namespace t4ext {
-    undefined4 (*FUN_005c0760)(const char* fmt, ...) = nullptr;
+    undefined4 (*FUN_005c0760_orig)(const char* fmt, ...) = nullptr;
+    undefined4 FUN_005c0760_detour(const char* fmt, ...) {
+        printf("[Game] ");
+        va_list ap;
+        va_start(ap, fmt);
+        i32 count = vprintf(fmt, ap);
+        va_end(ap);
+
+        return count;
+    }
+
     class CLevel;
     class CGame;
     CActor* (CGame::*CreateActorOrig)(CLevel*, const char*, const char*, const char*);
@@ -22,18 +40,31 @@ namespace t4ext {
         return actor;
     }
 
-    void ClientThread() {
-        utils::Singleton<Client>::Get()->run();
-    }
-
     Client::Client() : utils::IWithLogging("Client") {
+        // just for me
+        AllocConsole();
+        freopen("CONOUT$", "w", stdout);
+        HWND consoleWindow = FindWindowA("ConsoleWindowClass", NULL);
+        SetWindowPos(consoleWindow, 0, -1200, 300, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+
         m_logFile = nullptr;
         fopen_s(&m_logFile, "C:\\Users\\miguel\\programming\\t4ext\\t4ext.log", "w");
 
         m_currentLevel = nullptr;
+        m_scriptAPI = nullptr;
+
+        m_runTime.start();
     }
 
     Client::~Client() {
+        utils::Singleton<TimeoutEventType>::Destroy();
+        utils::Singleton<IEventType>::Destroy();
+
+        m_scriptAPI->shutdown();
+
+        delete m_scriptAPI;
+        m_scriptAPI = nullptr;
+
         if (MH_Uninitialize() != MH_OK) error("Failed to shutdown minhook");
 
         if (m_logFile) fclose(m_logFile);
@@ -46,56 +77,69 @@ namespace t4ext {
             return false;
         }
 
-        m_clientThread.reset(ClientThread);
+        m_scriptAPI = new TypeScriptAPI();
+        m_scriptAPI->subscribeLogger(this);
+        if (!m_scriptAPI->initPaths()) return false;
+        
+        BindAPI(m_scriptAPI);
+
+        utils::Singleton<IEventType>::Create();
+        utils::Singleton<TimeoutEventType>::Create();
+        
+        m_scriptAPI->registerEventType<IEvent>(utils::Singleton<IEventType>::Get(), "Event");
+        m_scriptAPI->registerEventType<TimeoutEvent>(utils::Singleton<TimeoutEventType>::Get(), "TimeoutEvent");
+
+        m_scriptAPI->commitBindings();
+
+        m_clientThread.reset([](){ utils::Singleton<Client>::Get()->run(); });
         if (m_clientThread.getId() == 0) {
             error("Failed to create client thread");
             return false;
         }
-
+        
         return true;
     }
 
-    static u32 screenChangeCount = 0;
-
     void Client::run() {
-        Sleep(5000);
-        FUN_005c0760 = (undefined4(*)(const char*, ...))0x005c0760;
-        log("Client thread started");
+        try {
+            // redirect game's own debug logs
+            MH_CreateHook((LPVOID)0x005c0760, (LPVOID)&FUN_005c0760_detour, (LPVOID*)&FUN_005c0760_orig);
+            MH_EnableHook((LPVOID)0x005c0760);
 
-        MH_CreateHook((LPVOID)0x00481510, (LPVOID)&CreateActor, (LPVOID*)&CreateActorOrig);
-        MH_EnableHook((LPVOID)0x00481510);
+            // Hook actor creation to get notifications about it
+            MH_CreateHook((LPVOID)0x00481510, (LPVOID)&CreateActor, (LPVOID*)&CreateActorOrig);
+            MH_EnableHook((LPVOID)0x00481510);
 
-        while (true) {
-            Sleep(1000);
-            if (m_currentLevel && screenChangeCount >= 2) {
-                /*
-                CActor* actor = CGame::Get()->spawnActorOverride(
-                    m_currentLevel,
-                    "Y:\\Data\\Actors\\EnemyVariations\\Soldier\\BarracksSoldierRifle.atr",
-                    "HumanAI", 
-                    "$/\\Data\\Actors\\Enemies\\Dinosoids\\Soldier\\nme_bb_troopsoid_model.atf"
-                );
+            log("Client thread started");
 
-                actor->setPosition({ -2.0f, -3.0f, -20.0f });
-                actor->setVisibility(true);
-                actor->setCollides(3);
-                actor->setTouches(0x400);
-                actor->setIgnores(0);
-                m_currentLevel->spawnActor(actor, 0);
-                */
-
-               m_currentLevel->spawnActorAtPosition(0, "HumanAI", "Y:\\Data\\Actors\\EnemyVariations\\Soldier\\BarracksSoldierRifle.atr", { -2.0f, -5.0f, 20.0f }, 0);
+            if (!m_scriptAPI->executeEntry()) {
+                MH_RemoveHook((LPVOID)0x00481510);
+                MH_RemoveHook((LPVOID)0x005c0760);
+                log("Client thread exiting");
+                return;
             }
+
+            MH_RemoveHook((LPVOID)0x00481510);
+            MH_RemoveHook((LPVOID)0x005c0760);
+        } catch (const std::exception& e) {
+            log("Caught exception: %s", e.what());
         }
 
-        MH_RemoveHook((LPVOID)0x00481510);
+        log("Client thread exiting");
+    }
+
+    f32 Client::elapsedTime() {
+        return m_runTime.elapsed();
+    }
+
+    CLevel* Client::currentLevel() {
+        return m_currentLevel;
     }
 
     void Client::onActorCreated(CLevel* lvl, CActor* actor, const char* name, const char* type, const char* model) {
-        log("onActorCreated(0x%X, '%s', '%s')", lvl, actor->getName(), name);
+        // log("onActorCreated(0x%X, '%s', '%s')", lvl, actor->getName(), name);
         if (lvl != m_currentLevel) {
-            screenChangeCount++;
-            log("Level change detected: 0x%X -> 0x%X", m_currentLevel, lvl);
+            log("Level change detected: 0x%X -> 0x%X (%s | 0x%X)", m_currentLevel, lvl, lvl->atrPath, lvl->atrPath);
         }
 
         m_currentLevel = lvl;
@@ -104,9 +148,11 @@ namespace t4ext {
     void Client::onLogMessage(utils::LOG_LEVEL level, const utils::String& scope, const utils::String& message) {
         propagateLog(level, scope, message);
 
-        utils::String msg = scope + ": " + message;
+        utils::String msg = utils::String::Format("[%s] %s", scope.c_str(), message.c_str());
 
-        if (FUN_005c0760) FUN_005c0760("%s\n", msg.c_str());
+        printf("%s\n", msg.c_str());
+        fflush(stdout);
+
         if (m_logFile) {
             fprintf(m_logFile, "%s\n", msg.c_str());
             fflush(m_logFile);

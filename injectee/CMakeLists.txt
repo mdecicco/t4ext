@@ -25,13 +25,19 @@ endmacro(add_sources)
 
 add_sources("src"           ".")
 add_sources("core"          "core")
+add_sources("script"        "script")
+add_sources("events"        "events")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_library(t4ext SHARED ${all_sources})
 
 target_include_directories(t4ext PUBLIC src)
 target_include_directories(t4ext PUBLIC "../deps/utils/include")
+target_include_directories(t4ext PUBLIC "../deps/v8/include")
 target_include_directories(t4ext PUBLIC "../deps/minhook/include")
+target_include_directories(t4ext PUBLIC "../build/deps/libffi/include")
+target_link_directories(t4ext PUBLIC "../deps/v8/lib")
+target_link_directories(t4ext PUBLIC "../lib")
 
 target_link_directories(t4ext PUBLIC lib)
 
@@ -43,6 +49,10 @@ SET(debug_libs
 SET(release_libs
     utils
     minhook
+    v8
+    v8_libplatform
+    Psapi
+    ffi_static
 )
 
 # target_link_libraries(t4ext ${debug_libs})

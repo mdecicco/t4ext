@@ -4,3 +4,6 @@
 [submodule "deps/minhook"]
 	path = deps/minhook
 	url = https://github.com/TsudaKageyu/minhook.git
+[submodule "deps/libffi"]
+	path = deps/libffi
+	url = https://github.com/mdecicco/libffi.git

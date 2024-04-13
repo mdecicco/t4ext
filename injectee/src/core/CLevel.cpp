@@ -1,4 +1,6 @@
 #include <core/CLevel.h>
+#include <utils/Singleton.hpp>
+#include <Client.h>
 
 #include <string.h>
 
@@ -25,6 +27,7 @@ namespace t4ext {
     }
     
     CActor* CLevel::spawnActorAtPosition(i32 p1, const char* type, const char* path, const utils::vec3f& pos, i32 p5) {
+        gClient::Get()->log("Spawn actor called");
         u32 addr = 0x005120e0;
         CActor* (__thiscall CLevel::*fn)(i32, const char*, const char*, const utils::vec3f&, i32);
         memcpy(&fn, &addr, 4);

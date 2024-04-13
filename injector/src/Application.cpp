@@ -17,6 +17,9 @@ namespace t4ext {
 
     bool Application::run() {
         if (!m_game.launch()) return false;
+        
+        // uncomment to allow time to attach windbg
+        // Sleep(25000);
         if (!m_game.injectDLL()) return false;
         
         while (m_game.isRunning()) {

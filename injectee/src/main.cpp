@@ -11,11 +11,6 @@ BOOL APIENTRY DllMain( HMODULE hModule,
 {
 	switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH: {
-            // just for me
-            AllocConsole();
-            HWND consoleWindow = FindWindowA("ConsoleWindowClass", NULL);
-            SetWindowPos(consoleWindow, 0, -1200, 300, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
-
             utils::Mem::Create();
             utils::Singleton<t4ext::Client>::Create();
             t4ext::Client* c = utils::Singleton<t4ext::Client>::Get();

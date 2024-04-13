@@ -4,6 +4,9 @@
     },
     "files.associations": {
         "*.embeddedhtml": "html",
-        "thread": "cpp"
+        "thread": "cpp",
+        "memory": "cpp",
+        "xmemory": "cpp",
+        "functional": "cpp"
     }
 }
