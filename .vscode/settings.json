@@ -7,6 +7,8 @@
         "thread": "cpp",
         "memory": "cpp",
         "xmemory": "cpp",
-        "functional": "cpp"
+        "functional": "cpp",
+        "mutex": "cpp",
+        "atomic": "cpp"
     }
 }

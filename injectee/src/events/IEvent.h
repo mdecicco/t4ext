@@ -5,6 +5,7 @@
 namespace t4ext {
     class IScriptAPI;
     class DataType;
+    class IEvent;
 
     class IEventType {
         public:
@@ -15,6 +16,8 @@ namespace t4ext {
 
             virtual void bind(DataType* eventTp);
             virtual bool canProduceEvents();
+            virtual IEvent* createEvent();
+            virtual void destroyEvent(IEvent* event);
         
         protected:
             friend class IScriptAPI;

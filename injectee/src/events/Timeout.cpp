@@ -2,6 +2,7 @@
 #include <script/IScriptAPI.hpp>
 
 #include <Client.h>
+#include <utils/Allocator.hpp>
 #include <utils/Singleton.hpp>
 
 namespace t4ext {
@@ -10,6 +11,7 @@ namespace t4ext {
         m_duration = duration;
         m_last = m_next = nullptr;
         m_loop = doLoop;
+        m_isDone = false;
         m_tmr.start();
     }
 
@@ -43,17 +45,11 @@ namespace t4ext {
             m_timeouts = m_lastTimeout = timeout;
         }
 
+        m_timeoutMap[m_nextTimeoutId] = timeout;
         return m_nextTimeoutId++;
     }
 
     void TimeoutEventType::removeTimeout(u32 id) {
-        if (m_lastTimeout && m_lastTimeout->m_id == id) {
-            ITimeoutData* n = m_lastTimeout;
-            m_lastTimeout->m_last->m_next = nullptr;
-            m_lastTimeout = m_lastTimeout->m_last;
-            delete n;
-        }
-
         auto it = m_timeoutMap.find(id);
         if (it == m_timeoutMap.end()) return;
 
@@ -63,8 +59,35 @@ namespace t4ext {
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_timeouts == n) m_timeouts = nullptr;
+        if (m_lastTimeout == n) m_lastTimeout = n->m_last;
 
         delete n;
+    }
+
+    bool TimeoutEventType::executeTimeout(u32 id) {
+        auto it = m_timeoutMap.find(id);
+        if (it == m_timeoutMap.end()) return true;
+
+        ITimeoutData* n = it->second;
+        n->execute();
+
+        // we have to check if the script removed the timeout
+        if (!m_timeoutMap.contains(id)) {
+            // it did
+            return true;
+        }
+
+        if (n->m_isDone) {
+            if (n->m_last) n->m_last->m_next = n->m_next;
+            if (n->m_next) n->m_next->m_last = n->m_last;
+            if (m_timeouts == n) m_timeouts = nullptr;
+            if (m_lastTimeout == n) m_lastTimeout = n->m_last;
+            delete n;
+            m_timeoutMap.erase(it);
+            return true;
+        }
+
+        return false;
     }
 
     void TimeoutEventType::processTimeouts() {
@@ -72,29 +95,25 @@ namespace t4ext {
         while (n) {
             u32 currentMS = n->m_tmr.elapsed() * 1000;
 
-            if (n->m_duration > currentMS) {
+            if (n->m_duration > currentMS || n->m_isDone) {
                 n = n->m_next;
                 continue;
             }
 
-            n->execute();
+            TimeoutEvent* evt = (TimeoutEvent*)createEvent();
+            evt->m_timeoutId = n->m_id;
+            evt->m_actionType = TimeoutEvent::Type::ExecuteCallback;
+
+            gClient::Get()->getAPI()->dispatchEvent(evt);
 
             if (n->m_loop) {
                 n->m_tmr.reset();
                 n->m_tmr.start();
-                n = n->m_next;
-                continue;
+            } else {
+                n->m_isDone = true;
             }
 
-            ITimeoutData* next = n->m_next;
-
-            if (n->m_last) n->m_last->m_next = n->m_next;
-            if (n->m_next) n->m_next->m_last = n->m_last;
-            if (m_timeouts == n) m_timeouts = n->m_next;
-            if (m_lastTimeout == n) m_lastTimeout = n->m_last;
-            delete n;
-
-            n = next;
+            n = n->m_next;
         }
     }
 
@@ -112,13 +131,25 @@ namespace t4ext {
         return m_timeouts != nullptr;
     }
     
-    TimeoutEvent::TimeoutEvent(u32 timeoutId, Type tp)
-    : IEvent(utils::Singleton<TimeoutEventType>::Get()), m_timeoutId(timeoutId), m_actionType(tp) {
+    IEvent* TimeoutEventType::createEvent() {
+        return new TimeoutEvent();
+    }
+    
+    void TimeoutEventType::destroyEvent(IEvent* event) {
+        delete (TimeoutEvent*)event;
+    }
+    
+    TimeoutEvent::TimeoutEvent() : IEvent(utils::Singleton<TimeoutEventType>::Get()) {
     }
 
     TimeoutEvent::~TimeoutEvent() {
     }
 
     void TimeoutEvent::process(IScriptAPI* api) {
+        if (m_actionType == Type::ExecuteCallback) {
+            TimeoutEventType* tp = utils::Singleton<TimeoutEventType>::Get();
+            tp->executeTimeout(m_timeoutId);
+            tp->destroyEvent(this);
+        }
     }
 };

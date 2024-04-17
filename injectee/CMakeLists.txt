@@ -23,10 +23,17 @@ macro(add_sources group dir)
     unset(_all)
 endmacro(add_sources)
 
+file(GLOB imgui_src "../deps/imgui/*.cpp")
+list(APPEND all_sources ${imgui_src})
+list(APPEND all_sources "../deps/imgui/backends/imgui_impl_dx9.cpp")
+list(APPEND all_sources "../deps/imgui/backends/imgui_impl_win32.cpp")
+
 add_sources("src"           ".")
 add_sources("core"          "core")
+add_sources("hooks"         "hooks")
 add_sources("script"        "script")
 add_sources("events"        "events")
+add_sources("bindings"      "bindings")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 add_library(t4ext SHARED ${all_sources})
@@ -34,6 +41,7 @@ add_library(t4ext SHARED ${all_sources})
 target_include_directories(t4ext PUBLIC src)
 target_include_directories(t4ext PUBLIC "../deps/utils/include")
 target_include_directories(t4ext PUBLIC "../deps/v8/include")
+target_include_directories(t4ext PUBLIC "../deps/imgui")
 target_include_directories(t4ext PUBLIC "../deps/minhook/include")
 target_include_directories(t4ext PUBLIC "../build/deps/libffi/include")
 target_link_directories(t4ext PUBLIC "../deps/v8/lib")
@@ -53,6 +61,7 @@ SET(release_libs
     v8_libplatform
     Psapi
     ffi_static
+    d3d9
 )
 
 # target_link_libraries(t4ext ${debug_libs})

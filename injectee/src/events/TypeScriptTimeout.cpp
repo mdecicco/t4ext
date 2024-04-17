@@ -22,6 +22,6 @@ namespace t4ext {
         v8::Local<v8::Context> context = m_isolate->GetCurrentContext();
         v8::TryCatch tc(m_isolate);
         m_callback.Get(m_isolate)->Call(context, context->Global(), 0, nullptr);
-        if (tc.HasCaught()) m_api->logException(context, tc);
+        if (tc.HasCaught()) m_api->logException(tc);
     }
 };

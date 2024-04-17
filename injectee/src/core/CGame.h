@@ -1,6 +1,7 @@
 #pragma once
 #include <types.h>
 #include <utils/Array.h>
+#include <script/IScriptAPI.h>
 
 namespace t4ext {
     class CLevel;
@@ -59,10 +60,15 @@ namespace t4ext {
             virtual void method48_0xc0();
             virtual void method49_0xc4();
 
-            
-            CActor* spawnActorOverride(const char* name, const char* type, const char* mtfPath);
             utils::Array<CLevel*> getLevels();
             CLevel* getCurrentLevel();
+            
+            u32 addUpdateListener(t4ext::ICallback<void>& callback);
+            void removeUpdateListener(u32 id);
+            u32 addRenderListener(t4ext::ICallback<void>& callback);
+            void removeRenderListener(u32 id);
+            void disableInput();
+            void enableInput();
 
             static CGame* Get();
 

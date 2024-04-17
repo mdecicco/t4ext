@@ -6,9 +6,14 @@
 
 #include <stdio.h>
 
+#define NOMINMAX
+#include <windows.h>
+
 namespace t4ext {
+    class d3dDevice;
     class CActor;
     class CLevel;
+    class IScriptAPI;
     class TypeScriptAPI;
 
     class Client : public utils::IWithLogging {
@@ -19,19 +24,24 @@ namespace t4ext {
             bool init();
             void run();
             f32 elapsedTime();
-            CLevel* currentLevel();
+            IScriptAPI* getAPI();
 
+            void onWindowCreated(HWND window);
+            void onPeekMessage(LPMSG msg, HWND window);
+            void onBeforeUpdate();
+            void onBeforeRender();
+            void onDeviceInit(d3dDevice* device);
+            void onDeviceReset(d3dDevice* device);
             void onActorCreated(CLevel* lvl, CActor* actor, const char* name, const char* type, const char* model);
 
             virtual void onLogMessage(utils::LOG_LEVEL level, const utils::String& scope, const utils::String& message);
     
         protected:
             FILE* m_logFile;
-            utils::Thread m_clientThread;
-
-            CLevel* m_currentLevel;
+            HWND m_gameWindow;
             TypeScriptAPI* m_scriptAPI;
             utils::Timer m_runTime;
+            utils::Thread m_scriptThread;
     };
 
     using gClient = utils::Singleton<Client>;

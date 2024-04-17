@@ -1,5 +1,7 @@
 #include <core/CGame.h>
 #include <core/CLevel.h>
+#include <script/IScriptAPI.hpp>
+#include <events/Update.h>
 
 #include <utils/Array.hpp>
 #include <utils/Singleton.hpp>
@@ -10,15 +12,6 @@
 namespace t4ext {
     CGame* CGame::Get() {
         return *(CGame**)0x006b52b4;
-    }
-
-    CActor* CGame::spawnActorOverride(const char* name, const char* type, const char* mtfPath) {
-        CLevel* level = gClient::Get()->currentLevel();
-        if (!level) return nullptr;
-        u32 addr = 0x00481510;
-        CActor* (CGame::*fn)(CLevel*, const char*, const char*, const char*);
-        memcpy(&fn, &addr, 4);
-        return (this->*fn)(level, name, type, mtfPath);
     }
     
     utils::Array<CLevel*> CGame::getLevels() {
@@ -39,6 +32,34 @@ namespace t4ext {
     }
     
     CLevel* CGame::getCurrentLevel() {
-        return gClient::Get()->currentLevel();
+        return nullptr;
+    }
+
+    u32 CGame::addUpdateListener(t4ext::ICallback<void>& callback) {
+        return utils::Singleton<EngineUpdateEventType>::Get()->createListener(callback);
+    }
+
+    void CGame::removeUpdateListener(u32 id) {
+        utils::Singleton<EngineUpdateEventType>::Get()->removeListener(id);
+    }
+
+    u32 CGame::addRenderListener(t4ext::ICallback<void>& callback) {
+        return utils::Singleton<EngineRenderEventType>::Get()->createListener(callback);
+    }
+
+    void CGame::removeRenderListener(u32 id) {
+        utils::Singleton<EngineRenderEventType>::Get()->removeListener(id);
+    }
+
+    void CGame::disableInput() {
+        DWORD dwBack;
+        VirtualProtect((BYTE*)0x004D0466, 1, PAGE_EXECUTE_READWRITE, &dwBack);
+        *(BYTE*)(0x004D0466) = 0xEB;
+    }
+
+    void CGame::enableInput() {
+        DWORD dwBack;
+        VirtualProtect((BYTE*)0x004D0466, 1, PAGE_EXECUTE_READWRITE, &dwBack);
+        *(BYTE*)(0x004D0466) = 0x74;
     }
 };

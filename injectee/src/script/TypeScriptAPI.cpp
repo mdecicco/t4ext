@@ -1,5 +1,9 @@
 #include <script/TypeScriptAPI.h>
+#include <script/IScriptAPI.hpp>
 #include <script/Calling.h>
+#include <script/TSHelpers.h>
+#include <script/TSInternal.h>
+
 #include <Client.h>
 
 #include <events/Timeout.h>
@@ -8,13 +12,13 @@
 #include <utils/Buffer.hpp>
 #include <utils/Arguments.h>
 
-
 #include <libplatform/libplatform.h>
 
 #include <direct.h>
 #include <filesystem>
 #include <sys/stat.h>
 #include <windows.h>
+#include <stdarg.h>
 
 namespace tsc {
     bool compileEntryScript(t4ext::TypeScriptAPI* api) {
@@ -97,7 +101,8 @@ namespace tsc {
 
             for (utils::u32 i = 0;i < 4096 && chBuf[i] != 0;i++) {
                 if (chBuf[i] == '\n' || chBuf[i] == '\r') {
-                    if (lineBuf.size() > 0) programOutput.push(lineBuf);
+                    if (lineBuf.size() == 0) continue;
+                    programOutput.push(lineBuf);
                     lineBuf = "";
                     continue;
                 }
@@ -151,117 +156,16 @@ namespace tsc {
 };
 
 namespace t4ext {
-    void consoleLog(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        Client* c = utils::Singleton<Client>::Get();
-        u32 argCount = args.Length();
-        for (u32 i = 0;i < argCount;i++) {
-            v8::String::Utf8Value str(args.GetIsolate(), args[i]);
-            c->log("%s", *str);
-        }
+    TypeScriptCallback::TypeScriptCallback(const v8::Local<v8::Function>& func) {
+        m_callback.Reset(func->GetIsolate(), func);
     }
-    void consoleWarn(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        Client* c = utils::Singleton<Client>::Get();
-        u32 argCount = args.Length();
-        for (u32 i = 0;i < argCount;i++) {
-            v8::String::Utf8Value str(args.GetIsolate(), args[i]);
-            c->warn("%s", *str);
-        }
+
+    TypeScriptCallback::~TypeScriptCallback() {
+        m_callback.Reset();
     }
-    void consoleError(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        Client* c = utils::Singleton<Client>::Get();
-        u32 argCount = args.Length();
-        for (u32 i = 0;i < argCount;i++) {
-            v8::String::Utf8Value str(args.GetIsolate(), args[i]);
-            c->error("%s", *str);
-        }
-    }
-    void defineFunc(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
-        v8::Isolate* isolate = args.GetIsolate();
-        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-        v8::Local<v8::Value> moduleId = args[0].As<v8::String>();
-        v8::Local<v8::Array> dependencies = args[1].As<v8::Array>();
-        v8::Local<v8::Value> initFuncOrExportObj = args[2];
-
-        v8::String::Utf8Value idStr(isolate, moduleId);
-
-        TypeScriptAPI::ModuleInfo* mod = new TypeScriptAPI::ModuleInfo;
-        mod->id = *idStr;
-        
-        for (u32 i = 0;i < dependencies->Length();i++) {
-            v8::String::Utf8Value depId(isolate, dependencies->Get(ctx, i).ToLocalChecked());
-            mod->dependencies.push(*depId);
-        }
-
-        if (initFuncOrExportObj->IsFunction()) mod->factory.Reset(isolate, initFuncOrExportObj.As<v8::Function>());
-        else if (!initFuncOrExportObj.IsEmpty()) mod->exports.Reset(isolate, initFuncOrExportObj.As<v8::Object>());
-        else mod->exports.Reset(isolate, v8::Object::New(isolate));
-
-        api->defineModule(mod);
-    }
-    void requireFunc(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        args.GetIsolate()->ThrowError(v8::String::NewFromUtf8Literal(args.GetIsolate(), "The 'require' function is not implemented. Bug stinkee2 about it"));
-    }
-    void eventPoll(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        bool doContinue = true;
-
-        TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
-        api->handleEvents();
-        
-        utils::Singleton<TimeoutEventType>::Get()->processTimeouts();
-        
-        args.GetReturnValue().Set(v8::Boolean::New(args.GetIsolate(), doContinue));
-    }
-    void setTimeout(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        if (args.Length() == 0) return;
-        TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
-        v8::Isolate* isolate = args.GetIsolate();
-        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-
-        if (!args[0]->IsFunction()) {
-            args.GetIsolate()->ThrowError(v8::String::NewFromUtf8Literal(args.GetIsolate(), "setTimeout expects the first parameter to be a callback function"));
-            return;
-        }
-
-        if (args.Length() >= 2 && !args[1]->IsNumber()) {
-            args.GetIsolate()->ThrowError(v8::String::NewFromUtf8Literal(args.GetIsolate(), "setTimeout expects the second parameter to be a duration in milliseconds"));
-            return;
-        }
-
-        v8::Local<v8::Function> callback = args[0].As<v8::Function>();
-        v8::Local<v8::Number> duration = args[1].As<v8::Number>();
-
-
-        u32 dur = duration.IsEmpty() ? 0 : u32(duration->Value());
-
-        TypeScriptTimeoutData* data = new TypeScriptTimeoutData(api, isolate, callback, dur, false);
-        u32 id = utils::Singleton<TimeoutEventType>::Get()->createTimeout(data);
-        args.GetReturnValue().Set(v8::Number::New(isolate, id));
-    }
-    void setInterval(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        if (args.Length() == 0) return;
-        TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
-        v8::Isolate* isolate = args.GetIsolate();
-        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-
-        if (!args[0]->IsFunction()) {
-            args.GetIsolate()->ThrowError(v8::String::NewFromUtf8Literal(args.GetIsolate(), "setInterval expects the first parameter to be a callback function"));
-            return;
-        }
-
-        if (args.Length() >= 2 && !args[1]->IsNumber()) {
-            args.GetIsolate()->ThrowError(v8::String::NewFromUtf8Literal(args.GetIsolate(), "setInterval expects the second parameter to be a duration in milliseconds"));
-            return;
-        }
-
-        v8::Local<v8::Function> callback = args[0].As<v8::Function>();
-        v8::Local<v8::Number> duration = args[1].As<v8::Number>();
-
-        u32 dur = duration.IsEmpty() ? 0 : u32(duration->Value());
-        TypeScriptTimeoutData* data = new TypeScriptTimeoutData(api, isolate, callback, dur, true);
-        u32 id = utils::Singleton<TimeoutEventType>::Get()->createTimeout(data);
-
-        args.GetReturnValue().Set(v8::Number::New(isolate, id));
+    
+    v8::Local<v8::Function> TypeScriptCallback::get(v8::Isolate* isolate) {
+        return m_callback.Get(isolate);
     }
 
 
@@ -283,6 +187,14 @@ namespace t4ext {
 
     void TypeScriptAPI::defineModule(ModuleInfo* module) {
         m_modules[module->id] = module;
+    }
+    
+    v8::Isolate* TypeScriptAPI::getIsolate() {
+        return m_isolate;
+    }
+
+    v8::Local<v8::Context>& TypeScriptAPI::getContext() {
+        return m_context;
     }
 
     bool TypeScriptAPI::initialize() {
@@ -365,7 +277,7 @@ namespace t4ext {
 
         log("Executing the entrypoint...");
 
-        utils::Buffer* buf = utils::Buffer::FromFile(m_pathBase + "/scripts/output/package.js");
+        utils::Buffer* buf = utils::Buffer::FromFile(m_pathBase + "/scripts/output/package.js", true);
         if (!buf) {
             error("Failed to open script '%s'");
             return false;
@@ -377,15 +289,17 @@ namespace t4ext {
             v8::Locker locker(m_isolate);
             v8::Isolate::Scope isolate_scope(m_isolate);
             v8::HandleScope handle_scope(m_isolate);
-            v8::Local<v8::Context> context = v8::Context::New(m_isolate);
-            v8::Context::Scope context_scope(context);
+            m_context = v8::Context::New(m_isolate);
+            v8::Context::Scope context_scope(m_context);
 
-            setupContext(context);
+            setupContext();
 
             v8::Local<v8::String> source;
             if (v8::String::NewFromUtf8(m_isolate, (const char*)buf->data()).ToLocal(&source)) {
-                didSucceed = execute(context, source);
+                didSucceed = execute(source);
             }
+            
+            delete buf;
 
             if (didSucceed) {
                 ModuleInfo* mainModule = getModule("main");
@@ -393,82 +307,69 @@ namespace t4ext {
                     error("Successfully compiled and initialized the entrypoint, but failed to obtain the main module");
                     didSucceed = false;
                 } else {
-                    loadModule(context, mainModule);
+                    // all aboard
+                    m_isReady = true;
+                    loadModule(mainModule);
                 }
             }
         }
 
-        delete buf;
         return didSucceed;
     }
 
-    bool TypeScriptAPI::executeScriptFile(const char* path) {
-        utils::Buffer* buf = utils::Buffer::FromFile(path);
-        if (!buf) {
-            error("Failed to open script '%s'");
-            return false;
-        }
-
-        bool didSucceed = executeScriptMemory((const char*)buf->data());
-
-        delete buf;
-        return didSucceed;
-    }
-
-    bool TypeScriptAPI::executeScriptMemory(const char* buf) {
-        bool didSucceed = false;
-
-        {
-            v8::Locker locker(m_isolate);
-            v8::Isolate::Scope isolate_scope(m_isolate);
-            v8::HandleScope handle_scope(m_isolate);
-            v8::Local<v8::Context> context = v8::Context::New(m_isolate);
-            v8::Context::Scope context_scope(context);
-
-            setupContext(context);
-
-            v8::Local<v8::String> source;
-            if (v8::String::NewFromUtf8(m_isolate, buf).ToLocal(&source)) {
-                didSucceed = execute(context, source);
-            }
-        }
-
-        return didSucceed;
-    }
-
-    void TypeScriptAPI::logException(const v8::Local<v8::Context>& context, const v8::TryCatch& tc) {
+    void TypeScriptAPI::logException(const v8::TryCatch& tc) {
         v8::String::Utf8Value exc_str(m_isolate, tc.Exception());
         error(*exc_str);
 
         v8::Local<v8::Value> trace;
-        if (tc.StackTrace(context).ToLocal(&trace)) {
+        if (tc.StackTrace(m_context).ToLocal(&trace)) {
             v8::String::Utf8Value trace_str(m_isolate, trace);
             error(*trace_str);
         }
     }
 
-    bool TypeScriptAPI::execute(const v8::Local<v8::Context>& context, const v8::Local<v8::String>& source) {
+    bool TypeScriptAPI::isReady() {
+        return m_isReady;
+    }
+
+    bool TypeScriptAPI::execute(const v8::Local<v8::String>& source) {
         bool didSucceed = true;
 
         v8::TryCatch tc(m_isolate);
-        v8::Local<v8::Script> script = v8::Script::Compile(context, source).ToLocalChecked();
-        if (!tc.HasCaught()) {
-            script->Run(context);
+        tc.SetVerbose(true);
+        v8::Local<v8::Script> script;
+        if (!v8::Script::Compile(m_context, source).ToLocal(&script)) {
             if (tc.HasCaught()) {
-                error("Caught exception while running script");
-                logException(context, tc);
+                error("Failed to compile script");
+                logException(tc);
+
+                log("For debug purposes, the script source was:");
+                v8::String::Utf8Value src(m_isolate, source);
+                printf("%s", *src);
+                didSucceed = false;
+            } else {
+                error("Failed to compile script, or failed to get compiled script");
+            }
+            didSucceed = false;
+        } else {
+            if (!tc.HasCaught()) {
+                script->Run(m_context);
+                if (tc.HasCaught()) {
+                    error("Caught exception while running script");
+                    logException(tc);
+                    didSucceed = false;
+                }
+            } else {
+                error("Caught exception in script");
+                logException(tc);
                 didSucceed = false;
             }
-        } else {
-            error("Caught exception in script");
-            logException(context, tc);
-            didSucceed = false;
         }
 
         return didSucceed;
     }
 
-    v8::Local<v8::Object> TypeScriptAPI::loadModule(const v8::Local<v8::Context>& context, ModuleInfo* module) {
+    v8::Local<v8::Object> TypeScriptAPI::loadModule(ModuleInfo* module) {
         if (module->exports.IsEmpty()) {
             v8::Local<v8::Object> exports = v8::Object::New(m_isolate);
 
@@ -482,7 +383,7 @@ namespace t4ext {
             for (u32 i = 0;i < module->dependencies.size();i++) {
                 utils::String& depId = module->dependencies[i];
                 if (depId == "require") {
-                    deps.push(v8::FunctionTemplate::New(m_isolate, requireFunc)->GetFunction(context).ToLocalChecked());
+                    deps.push(v8::FunctionTemplate::New(m_isolate, requireFunc)->GetFunction(m_context).ToLocalChecked());
                 } else if (depId == "exports") {
                     deps.push(exports);
                 } else {
@@ -498,12 +399,12 @@ namespace t4ext {
                         continue;
                     }
 
-                    deps.push(loadModule(context, depMod));
+                    deps.push(loadModule(depMod));
                 }
             }
 
             v8::Local<v8::Function> factory = module->factory.Get(m_isolate);
-            factory->Call(context, context->Global(), deps.size(), deps.data());
+            factory->Call(m_context, m_context->Global(), deps.size(), deps.data());
 
             module->exports.Reset(m_isolate, exports);
             return exports;
@@ -512,66 +413,92 @@ namespace t4ext {
         return module->exports.Get(m_isolate);
     }
 
-    void TypeScriptAPI::setupContext(const v8::Local<v8::Context>& context) {
-        v8::Local<v8::Object> global = context->Global();
+    void TypeScriptAPI::setupContext() {
+        v8::Local<v8::Object> global = m_context->Global();
         v8::Local<v8::String> key;
         
         key = v8::String::NewFromUtf8Literal(m_isolate, "console");
-        v8::Local<v8::Object> console = global->Get(context, key).ToLocalChecked().As<v8::Object>();
+        v8::Local<v8::Value> consoleV;
+        if (v8GetProp(global, "console", &consoleV)) {
+            v8::Local<v8::Object> console = consoleV.As<v8::Object>();
+            v8SetProp(console, "log", v8Func(m_isolate, consoleLog));
+            v8SetProp(console, "warn", v8Func(m_isolate, consoleWarn));
+            v8SetProp(console, "error", v8Func(m_isolate, consoleError));
+        }
         
-        key = v8::String::NewFromUtf8Literal(m_isolate, "log");
-        console->Set(context, key, v8::FunctionTemplate::New(m_isolate, consoleLog)->GetFunction(context).ToLocalChecked());
-        key = v8::String::NewFromUtf8Literal(m_isolate, "warn");
-        console->Set(context, key, v8::FunctionTemplate::New(m_isolate, consoleWarn)->GetFunction(context).ToLocalChecked());
-        key = v8::String::NewFromUtf8Literal(m_isolate, "error");
-        console->Set(context, key, v8::FunctionTemplate::New(m_isolate, consoleError)->GetFunction(context).ToLocalChecked());
-
         v8::Local<v8::External> self = v8::External::New(m_isolate, this);
-        global->Set(
-            context,
-            v8::String::NewFromUtf8Literal(m_isolate, "define"),
-            v8::FunctionTemplate::New(m_isolate, defineFunc, self)->GetFunction(context).ToLocalChecked()
-        );
-
-        global->Set(
-            context,
-            v8::String::NewFromUtf8Literal(m_isolate, "event_poll"),
-            v8::FunctionTemplate::New(m_isolate, eventPoll, self)->GetFunction(context).ToLocalChecked()
-        );
-
-        global->Set(
-            context,
-            v8::String::NewFromUtf8Literal(m_isolate, "setTimeout"),
-            v8::FunctionTemplate::New(m_isolate, setTimeout, self)->GetFunction(context).ToLocalChecked()
-        );
-
-        global->Set(
-            context,
-            v8::String::NewFromUtf8Literal(m_isolate, "setInterval"),
-            v8::FunctionTemplate::New(m_isolate, setInterval, self)->GetFunction(context).ToLocalChecked()
-        );
+        v8SetProp(global, "define", v8Func(m_isolate, defineFunc, self));
+        v8SetProp(global, "event_poll", v8Func(m_isolate, eventPoll, self));
+        v8SetProp(global, "setTimeout", v8Func(m_isolate, setTimeout, self));
+        v8SetProp(global, "setInterval", v8Func(m_isolate, setInterval, self));
+        v8SetProp(global, "clearTimeout", v8Func(m_isolate, clearTimeout, self));
+        v8SetProp(global, "clearInterval", v8Func(m_isolate, clearInterval, self));
 
         v8::Local<v8::Object> t4 = v8::Object::New(m_isolate);
 
         t4->SetAccessorProperty(
-            v8::String::NewFromUtf8Literal(m_isolate, "elapsedTime"),
-            v8::FunctionTemplate::New(m_isolate, [](const v8::FunctionCallbackInfo<v8::Value>& args){
+            v8StrLiteral(m_isolate, "elapsedTime"),
+            v8Func(m_isolate, +[](const v8::FunctionCallbackInfo<v8::Value>& args){
                 args.GetReturnValue().Set(v8::Number::New(args.GetIsolate(), gClient::Get()->elapsedTime()));
-            }, self)->GetFunction(context).ToLocalChecked(),
+            }),
             v8::Local<v8::Function>(),
             v8::PropertyAttribute::ReadOnly
         );
 
-        for (Function* f : m_globalFunctions) {
-            v8::Local<v8::External> data = v8::External::New(m_isolate, f);
-            t4->Set(
-                context,
-                v8::String::NewFromUtf8(m_isolate, f->getName().c_str()).ToLocalChecked(),
-                v8::FunctionTemplate::New(m_isolate, HostCallHandler, data)->GetFunction(context).ToLocalChecked()
-            );
+        for (ScriptNamespace* ns : m_namespaces) {
+            v8::Local<v8::Object> nsObj;
+            if (ns->name.size() == 0) nsObj = m_context->Global();
+            else if (ns->name == "t4") nsObj = t4;
+            else nsObj = v8::Object::New(m_isolate);
+
+            for (Function* f : ns->globalFunctions) {
+                v8::Local<v8::External> data = v8::External::New(m_isolate, f);
+                v8SetProp(nsObj, f->getName(), v8Func(m_isolate, HostCallHandler, data));
+            }
+
+            for (DataType* tp : ns->types) {
+                if (tp->getPrimitiveType() != Primitive::pt_enum) continue;
+
+                v8::Local<v8::Object> etp = v8::Object::New(m_isolate);
+                utils::Array<DataTypeField>& fields = tp->getFields();
+                for (DataTypeField& field : fields) {
+                    v8SetProp(etp, field.name, v8::Number::New(m_isolate, field.offset));
+                }
+
+                v8SetProp(nsObj, tp->getName(), etp);
+            }
+
+            if (ns->name.size() != 0) {
+                v8SetProp(global, ns->name, nsObj);
+            }
+        }
+    }
+
+    utils::String tpName(DataType* tp, bool isPtr = false, bool isNullable = false) {
+        if (tp->getPrimitiveType() == Primitive::pt_char && isPtr) return isNullable ? "string | null" : "string";
+
+        if (tp->isFunction()) {
+            FunctionSignature& sig = tp->getSignature();
+            utils::String str;
+            str += "(";
+
+            utils::Array<FunctionArgument>& args = sig.getArgs();
+            bool isFirst = true;
+            for (FunctionArgument& a : args) {
+                if (!isFirst) str += ", ";
+                isFirst = false;
+
+                str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
+            }
+
+            str += utils::String(") => ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void");
+
+            if (isNullable) str = "(" + str + ") | null";
+            return str;
         }
 
-        global->Set(context, v8::String::NewFromUtf8Literal(m_isolate, "t4"), t4);
+        if (isPtr && isNullable) return tp->getName() + " | null";
+        return tp->getName();
     }
 
     bool TypeScriptAPI::generateDefs() {
@@ -594,85 +521,112 @@ namespace t4ext {
             out.write(ln.c_str(), ln.size());
         };
 
-        auto tpName = [](DataType* tp, bool isPtr = false, bool isNullable = false) -> utils::String {
-            if (tp->getPrimitiveType() == Primitive::pt_char && isPtr) return isNullable ? "string | null" : "string";
+        for (ScriptNamespace* ns : m_namespaces) {
+            if (ns->name.size() > 0) {
+                l("declare namespace %s {", ns->name.c_str());
+                indent++;
+            }
+            
+            bool isFirstType = true;
+            bool lastWasPrim = false;
+            for (DataType* tp : ns->types) {
+                if (tp->isFunction() || tp->getFlags().is_hidden) continue;
 
-            if (isPtr && isNullable) return tp->getName() + " | null";
-            return tp->getName();
-        };
+                if (!isFirstType && !(lastWasPrim && tp->isPrimitive() && tp->getPrimitiveType() != Primitive::pt_enum)) l("");
+                isFirstType = false;
 
-        l("declare namespace t4 {");
-        indent++;
-        
-        bool isFirstType = true;
-        bool lastWasPrim = false;
-        for (DataType* tp : m_types) {
-            if (!isFirstType && !(lastWasPrim && tp->isPrimitive() && tp->getPrimitiveType() != Primitive::pt_enum)) l("");
-            isFirstType = false;
+                if (tp->isPrimitive()) {
+                    // this may not always be applicable in the future, but it is now
+                    if (tp->getPrimitiveType() == Primitive::pt_char) l("type char = number | string;");
+                    else if (tp->getPrimitiveType() == Primitive::pt_enum) {
+                        l("enum %s {", tp->getName().c_str());
+                        indent++;
+                        
+                        utils::Array<DataTypeField>& fields = tp->getFields();
+                        for (u32 i = 0;i < fields.size();i++) {
+                            DataTypeField& f = fields[i];
+                            l("%s = %lu%s", f.name.c_str(), f.offset, i == fields.size() - 1 ? "" : ",");
+                        }
 
-            if (tp->isPrimitive()) {
-                // this may not always be applicable in the future, but it is now
-                if (tp->getPrimitiveType() == Primitive::pt_char) l("type char = number | string;");
-                else if (tp->getPrimitiveType() == Primitive::pt_enum) {
-                    l("enum %s {", tp->getName().c_str());
-                    indent++;
-                    
-                    utils::Array<DataTypeField>& fields = tp->getFields();
-                    for (u32 i = 0;i < fields.size();i++) {
-                        DataTypeField& f = fields[i];
-                        l("%s = %lu%s", f.name.c_str(), f.offset, i == fields.size() - 1 ? "" : ",");
-                    }
-
-                    indent--;
-                    l("}");
+                        indent--;
+                        l("}");
+                        continue;
+                    } else l("type %s = number;", tp->getName().c_str());
+                    lastWasPrim = true;
                     continue;
-                } else l("type %s = number;", tp->getName().c_str());
-                lastWasPrim = true;
-                continue;
-            }
+                }
 
-            lastWasPrim = false;
-            
-            utils::String extends = "";
-            utils::Array<DataType*>& bases = tp->getBases();
-            if (bases.size() > 1) {
-                MessageBoxA(
-                    nullptr,
-                    utils::String::Format("DataType '%s' inherits multiple other types, which is currently unsupported", tp->getName().c_str()).c_str(),
-                    "Unsupported Behavior",
-                    MB_OK
-                );
-                exit(1);
-            } else if (bases.size() == 1) {
-                extends = utils::String::Format("extends %s ", bases[0]->getName().c_str());
-            }
-
-            l("/**");
-            l(" * @size 0x%X (%d bytes)", tp->getSize(), tp->getSize());
-            l(" */");
-            l("class %s %s{", tp->getName().c_str(), extends.c_str());
-            indent++;
-            
-            utils::Array<DataTypeField>& fields = tp->getFields();
-            bool addSpace = false;
-            for (DataTypeField& f : fields) {
-                if (addSpace) l("");
-                addSpace = true;
-
-                u32 sz = f.flags.is_pointer ? 4 : f.type->getSize();
+                lastWasPrim = false;
+                
+                utils::String extends = "";
+                utils::Array<DataType*>& bases = tp->getBases();
+                if (bases.size() > 1) {
+                    MessageBoxA(
+                        nullptr,
+                        utils::String::Format("DataType '%s' inherits multiple other types, which is currently unsupported", tp->getName().c_str()).c_str(),
+                        "Unsupported Behavior",
+                        MB_OK
+                    );
+                    exit(1);
+                } else if (bases.size() == 1) {
+                    extends = utils::String::Format("extends %s ", bases[0]->getName().c_str());
+                }
 
                 l("/**");
-                l(" * @offset 0x%X (%d bytes)", f.offset, f.offset);
-                l(" * @size 0x%X (%d bytes)", sz, sz);
+                l(" * @size 0x%X (%d bytes)", tp->getSize(), tp->getSize());
                 l(" */");
-                l("%s%s: %s;", f.flags.is_readonly ? "readonly " : "", f.name.c_str(), tpName(f.type, f.flags.is_pointer, f.flags.is_nullable).c_str());
+                if (tp->getFlags().needs_host_construction) l("class %s %s{", tp->getName().c_str(), extends.c_str());
+                else l("interface %s %s{", tp->getName().c_str(), extends.c_str());
+                indent++;
+                
+                utils::Array<DataTypeField>& fields = tp->getFields();
+                bool addSpace = false;
+                for (DataTypeField& f : fields) {
+                    if (addSpace) l("");
+                    addSpace = true;
+
+                    u32 sz = f.flags.is_pointer ? 4 : f.type->getSize();
+
+                    l("/**");
+                    l(" * @offset 0x%X (%d bytes)", f.offset, f.offset);
+                    l(" * @size 0x%X (%d bytes)", sz, sz);
+                    l(" */");
+                    l("%s%s: %s;", f.flags.is_readonly ? "readonly " : "", f.name.c_str(), tpName(f.type, f.flags.is_pointer, f.flags.is_nullable).c_str());
+                }
+
+                utils::Array<Function*>& methods = tp->getMethods();
+                for (Function* m : methods) {
+                    FunctionSignature& sig = m->getSignature();
+
+                    utils::String str = m->getName();
+                    str += "(";
+
+                    utils::Array<FunctionArgument>& args = sig.getArgs();
+                    bool isFirst = true;
+                    for (FunctionArgument& a : args) {
+                        if (!isFirst) str += ", ";
+                        isFirst = false;
+
+                        str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
+                    }
+
+                    str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void").c_str() + ";";
+                    
+                    l("/**");
+                    l(" * @address 0x%X", m->getAddress());
+                    l(" */");
+                    l(str.c_str());
+                }
+
+                indent--;
+                l("}");
             }
 
-            utils::Array<Function*>& methods = tp->getMethods();
-            for (Function* m : methods) {
-                FunctionSignature& sig = m->getSignature();
+            if (ns->types.size() > 0 && ns->globalFunctions.size() > 0) l("");
 
-                utils::String str = m->getName();
+            for (Function* f : ns->globalFunctions) {
+                FunctionSignature& sig = f->getSignature();
+                utils::String str = utils::String("function ") + f->getName();
                 str += "(";
 
                 utils::Array<FunctionArgument>& args = sig.getArgs();
@@ -684,60 +638,35 @@ namespace t4ext {
                     str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
                 }
 
-                str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void").c_str() + ";";
+                str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void") + ";";
                 
                 l("/**");
-                l(" * @address 0x%X", m->getAddress());
+                l(" * @address 0x%X", f->getAddress());
                 l(" */");
                 l(str.c_str());
             }
 
-            indent--;
-            l("}");
-        }
+            if (ns->globalFunctions.size() > 0 && ns->globalVars.size() > 0) l("");
 
-        if (m_types.size() > 0 && m_globalFunctions.size() > 0) l("");
-
-        for (Function* f : m_globalFunctions) {
-            FunctionSignature& sig = f->getSignature();
-            utils::String str = utils::String("function ") + f->getName();
-            str += "(";
-
-            utils::Array<FunctionArgument>& args = sig.getArgs();
             bool isFirst = true;
-            for (FunctionArgument& a : args) {
-                if (!isFirst) str += ", ";
+            for (GlobalVariable& g : ns->globalVars) {
+                if (!isFirst) l("");
                 isFirst = false;
 
-                str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
+                u32 sz = g.flags.is_pointer ? 4 : g.type->getSize();
+                
+                l("/**");
+                l(" * @address 0x%X", g.address);
+                l(" * @size 0x%X (%d bytes)", sz, sz);
+                l(" */");
+                l("const %s: %s;", g.name.c_str(), tpName(g.type, g.flags.is_pointer, g.flags.is_nullable).c_str());
             }
 
-            str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void") + ";";
-            
-            l("/**");
-            l(" * @address 0x%X", f->getAddress());
-            l(" */");
-            l(str.c_str());
+            if (ns->name.size() > 0) {
+                indent--;
+                l("}");
+            }
         }
-
-        if (m_globalFunctions.size() > 0 && m_globalVars.size() > 0) l("");
-
-        bool isFirst = true;
-        for (GlobalVariable& g : m_globalVars) {
-            if (!isFirst) l("");
-            isFirst = false;
-
-            u32 sz = g.flags.is_pointer ? 4 : g.type->getSize();
-            
-            l("/**");
-            l(" * @address 0x%X", g.address);
-            l(" * @size 0x%X (%d bytes)", sz, sz);
-            l(" */");
-            l("const %s: %s;", g.name.c_str(), tpName(g.type, g.flags.is_pointer, g.flags.is_nullable).c_str());
-        }
-
-        indent--;
-        l("}");
 
         if (!out.save(m_pathBase + "/scripts/globals.d.ts")) {
             error("Failed to write globals.d.ts file");

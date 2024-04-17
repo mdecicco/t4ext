@@ -1,19 +1,78 @@
 #include <script/IScriptAPI.h>
 #include <events/IEvent.h>
 #include <utils/Timer.h>
+#include <utils/Thread.h>
 
 #include <filesystem>
 #include <windows.h>
 #include <psapi.h>
 
 namespace t4ext {
+    DataTypeField::DataTypeField(const utils::String& _name, DataType* _type, u32 _offset, u32 _flags) {
+        name = _name;
+        type = _type;
+        offset = _offset;
+        memset(&flags, 0, sizeof(_Flags));
+        setFlags(_flags);
+    }
+
+    void DataTypeField::setFlags(u32 f) {
+        memset(&flags, 0, sizeof(_Flags));
+        if (f & Flags::IsReadOnly) flags.is_readonly = 1;
+        if (f & Flags::IsPointer) flags.is_pointer = 1;
+        if (f & Flags::IsNullable) flags.is_nullable = 1;
+    }
+
+    FunctionArgument::FunctionArgument(const utils::String& _name, DataType* _type, u32 _flags) {
+        name = _name;
+        type = _type;
+        setFlags(_flags);
+    }
+
+    void FunctionArgument::setFlags(u32 f) {
+        memset(&flags, 0, sizeof(_Flags));
+        if (f & Flags::IsPointer) flags.is_pointer = 1;
+        if (f & Flags::IsNullable) flags.is_nullable = 1;
+    }
+
+    GlobalVariable::GlobalVariable(const utils::String& _name, DataType* _type, u32 _address, u32 _flags) {
+        name = _name;
+        type = _type;
+        address = _address;
+        setFlags(_flags);
+    }
+
+    void GlobalVariable::setFlags(u32 f) {
+        if (f & Flags::IsPointer) flags.is_pointer = 1;
+        if (f & Flags::IsNullable) flags.is_nullable = 1;
+    }
+
     //
     // FunctionSignature
     //
 
-    FunctionSignature::FunctionSignature(DataType* thisTp, DataType* retTp, bool returnsPtr, const utils::Array<FunctionArgument>& args)
-        : m_thisTp(thisTp), m_retTp(retTp), m_returnsPtr(returnsPtr), m_args(args) {}
+    FunctionSignature::FunctionSignature(
+        DataType* thisTp,
+        DataType* retTp,
+        const utils::Array<FunctionArgument>& args,
+        u32 flags
+    ) : m_args(args) {
+        m_thisTp = thisTp;
+        m_retTp = retTp;
+        memset(&m_flags, 0, sizeof(_Flags));
+        setFlags(flags);
+    }
+
     FunctionSignature::~FunctionSignature() {}
+
+    
+    void FunctionSignature::setFlags(u32 f) {
+        if (f & Flags::ReturnsPointer) m_flags.returns_pointer = 1;
+    }
+
+    FunctionSignature::_Flags& FunctionSignature::getFlags() {
+        return m_flags;
+    }
 
     utils::Array<FunctionArgument>& FunctionSignature::getArgs() {
         return m_args;
@@ -28,7 +87,7 @@ namespace t4ext {
     }
 
     bool FunctionSignature::returnsPointer() {
-        return m_returnsPtr;
+        return m_flags.returns_pointer;
     }
 
 
@@ -37,7 +96,14 @@ namespace t4ext {
     // Function
     //
     
-    Function::Function(const utils::String& name, void* address, DataType* retTp, bool returnsPtr, const utils::Array<FunctionArgument>& args, DataType* methodOf) : m_sig(methodOf, retTp, returnsPtr, args) {
+    Function::Function(
+        const utils::String& name,
+        void* address,
+        DataType* retTp,
+        const utils::Array<FunctionArgument>& args,
+        u32 flags,
+        DataType* methodOf
+    ) : m_sig(methodOf, retTp, args, flags) {
         m_name = name;
         m_addr = address;
     }
@@ -53,12 +119,19 @@ namespace t4ext {
         return m_sig;
     }
     
-    void Function::setArgNames(const utils::Array<utils::String>& names) {
+    Function* Function::setArgNames(const utils::Array<utils::String>& names) {
         utils::Array<FunctionArgument>& args = m_sig.getArgs();
         for (u32 i = 0;i < names.size();i++) {
-            if (i >= args.size()) return;
+            if (i >= args.size()) return this;
             args[i].name = names[i];
         }
+
+        return this;
+    }
+
+    Function* Function::setArgNullable(u32 idx) {
+        m_sig.getArgs()[idx].flags.is_nullable = 1;
+        return this;
     }
 
     void* Function::getAddress() {
@@ -71,15 +144,34 @@ namespace t4ext {
     // DataType
     //
 
-    DataType::DataType(IScriptAPI* api, const utils::String& name, u32 size, Primitive primitiveType) {
+    DataType::DataType(IScriptAPI* api, const utils::String& name, u32 size, Primitive primitiveType) : m_cbSignature(nullptr, nullptr, {}, 0) {
         m_api = api;
         m_name = name;
         m_size = size;
         m_primitiveType = primitiveType;
+        m_isFunction = false;
+
+        memset(&m_flags, 0, sizeof(_Flags));
+        m_flags.needs_host_construction = 1; // assume this for safety
+    }
+    
+    DataType::DataType(IScriptAPI* api, DataType* retTp, const utils::Array<FunctionArgument>& args, u32 flags) : m_cbSignature(nullptr, retTp, args, flags) {
+        m_api = api;
+        m_size = sizeof(void*);
+        m_primitiveType = Primitive::pt_none;
+        m_isFunction = true;
+
+        memset(&m_flags, 0, sizeof(_Flags));
+        m_flags.needs_host_construction = 1;
     }
 
     DataType::~DataType() {
         for (Function* fn : m_methods) delete fn;
+    }
+
+    void DataType::setFlags(u32 f) {
+        if (f & Flags::HostConstructionNotRequired) m_flags.needs_host_construction = 0;
+        if (f & Flags::IsHidden) m_flags.is_hidden = 1;
     }
 
     void DataType::addField(const DataTypeField& field) {
@@ -98,12 +190,12 @@ namespace t4ext {
 
     void DataType::bindEnumValue(const utils::String& name, u32 enumValue) {
         if (m_primitiveType != Primitive::pt_enum) return;
-        m_fields.push({
+        m_fields.push(DataTypeField(
             name,
             m_api->getType<u32>(),
             enumValue,
-            { 0, 0 }
-        });
+            0
+        ));
     }
     
     IScriptAPI* DataType::getApi() {
@@ -122,8 +214,20 @@ namespace t4ext {
         return m_primitiveType != Primitive::pt_none;
     }
 
+    bool DataType::isFunction() {
+        return m_isFunction;
+    }
+
     Primitive DataType::getPrimitiveType() {
         return m_primitiveType;
+    }
+    
+    FunctionSignature& DataType::getSignature() {
+        return m_cbSignature;
+    }
+
+    DataType::_Flags& DataType::getFlags() {
+        return m_flags;
     }
 
     utils::Array<DataTypeField>& DataType::getFields() {
@@ -144,12 +248,17 @@ namespace t4ext {
     // IScriptAPI
     //
 
-    IScriptAPI::IScriptAPI() : utils::IWithLogging("ScriptAPI") {
+    IScriptAPI::IScriptAPI() : utils::IWithLogging("ScriptAPI"), m_batchFlag(false), m_shouldTerminate(false) {
+        // make sure the 0th namespace is the global one, and that it's current
+        beginNamespace("");
     }
 
     IScriptAPI::~IScriptAPI() {
-        for (DataType* tp : m_types) delete tp;
-        for (Function* fn : m_globalFunctions) delete fn;
+        for (ScriptNamespace* ns : m_namespaces) {
+            for (DataType* tp : ns->types) delete tp;
+            for (Function* fn : ns->globalFunctions) delete fn;
+            delete ns;
+        }
     }
 
     bool IScriptAPI::initPaths() {
@@ -192,30 +301,61 @@ namespace t4ext {
     const utils::String& IScriptAPI::getScriptEntrypointPath() {
         return m_entryPath;
     }
+    
+    void IScriptAPI::beginNamespace(const utils::String& name) {
+        for (ScriptNamespace* ns : m_namespaces) {
+            if (ns->name == name) {
+                m_currentNamespace = ns;
+                return;
+            }
+        }
+
+        m_namespaces.push(new ScriptNamespace({ name }));
+        m_currentNamespace = m_namespaces.last();
+    }
+
+    void IScriptAPI::endNamespace() {
+        m_currentNamespace = m_namespaces[0];
+    }
 
     void IScriptAPI::addType(DataType* tp) {
-        m_types.push(tp);
+        if (!m_currentNamespace) {
+            error("No namespace has been started");
+            return;
+        }
+        
+        m_currentNamespace->types.push(tp);
     }
 
     void IScriptAPI::addFunc(Function* fn) {
-        m_globalFunctions.push(fn);
+        if (!m_currentNamespace) {
+            error("No namespace has been started");
+            return;
+        }
+        
+        m_currentNamespace->globalFunctions.push(fn);
     }
 
     void IScriptAPI::dispatchEvent(IEvent* event) {
-        m_eventMutex.lock();
         m_events.push(event);
-        m_eventMutex.unlock();
     }
 
-    void IScriptAPI::handleEvents() {
+    bool IScriptAPI::handleEvents() {
+        std::unique_lock<std::mutex> lock(m_batchMutex);
+        m_batchCondition.wait_for(lock, std::chrono::seconds(1), [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
+        if (m_batchFlag == false || m_shouldTerminate) {
+            // either the game crashed or something else... In any case, we shouldn't
+            // have been waiting this long. Let's get out of here
+            error("Game has become unresponsive, terminating script thread so it can die");
+            return true;
+        }
+
         utils::Timer processTimer;
         processTimer.start();
 
         while (true) {
             IEvent* nextEvent = nullptr;
-            m_eventMutex.lock();
             if (m_events.size() > 0) nextEvent = m_events.pop();
-            m_eventMutex.unlock();
 
             if (!nextEvent) {
                 // No more events to process
@@ -223,13 +363,17 @@ namespace t4ext {
             }
 
             nextEvent->process(this);
-            delete nextEvent;
 
             if (processTimer.elapsed() > 0.01666666666f) {
                 // Don't take too long... Save the rest for next time
                 break;
             }
         }
+
+        m_batchFlag = !m_batchFlag;
+        m_batchCondition.notify_one();
+
+        return m_shouldTerminate == true;
     }
     
     bool IScriptAPI::initialize() {
@@ -246,5 +390,20 @@ namespace t4ext {
     
     bool IScriptAPI::executeEntry() {
         return true;
+    }
+
+    void IScriptAPI::signalTermination() {
+        m_shouldTerminate = true;
+        m_batchCondition.notify_one();
+    }
+    
+    void IScriptAPI::signalEventBatchStart() {
+        m_batchFlag = !m_batchFlag;
+        m_batchCondition.notify_one();
+    }
+    
+    void IScriptAPI::waitForEventBatchCompletion() {
+        std::unique_lock<std::mutex> lock(m_batchMutex);
+        m_batchCondition.wait(lock, [this](){ return m_batchFlag == false; });
     }
 };

@@ -7,3 +7,6 @@
 [submodule "deps/libffi"]
 	path = deps/libffi
 	url = https://github.com/mdecicco/libffi.git
+[submodule "deps/imgui"]
+	path = deps/imgui
+	url = https://github.com/ocornut/imgui.git

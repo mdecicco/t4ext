@@ -23,6 +23,13 @@ namespace t4ext {
         return false;
     }
     
+    IEvent* IEventType::createEvent() {
+        return nullptr;
+    }
+    
+    void IEventType::destroyEvent(IEvent* event) {
+    }
+    
     void IEventType::setName(const utils::String& name) {
         m_name = name;
     }
