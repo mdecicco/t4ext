@@ -419,7 +419,7 @@ namespace t4ext {
             }
 
             return false;
-        })->setArgNames({ "path" });;
+        })->setArgNames({ "path" });
 
         api->endNamespace();
     }
