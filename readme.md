@@ -1,6 +1,10 @@
 ## t4ext
 This project builds a file, `t4ext.dll`, which embeds the [v8 engine](https://github.com/v8/v8) into the game and exposes several APIs to it for modding purposes.
 
+I probably won't be putting too much work into documenting all of this, but as of right now you can check out
+[this file](https://github.com/mdecicco/t4scripts/blob/main/mods/DebugMenu.ts) to see an example of what's possible
+at the moment.
+
 ## Contents
 - [Requirements](#requirements)
 - [Features](#features)
