@@ -13,21 +13,8 @@ namespace t4ext {
         return m_name;
     }
 
-    void IEventType::bind(DataType* eventTp) {
-        auto f = eventTp->bind("type", &IEvent::type_name);
-        f->flags.is_nullable = false;
-        f->flags.is_readonly = true;
-    }
-
     bool IEventType::canProduceEvents() {
         return false;
-    }
-    
-    IEvent* IEventType::createEvent() {
-        return nullptr;
-    }
-    
-    void IEventType::destroyEvent(IEvent* event) {
     }
     
     void IEventType::setName(const utils::String& name) {

@@ -13,35 +13,11 @@
 #include <stdint.h>
 
 namespace t4ext {
-    ffi_type* ffiType(DataType* tp) {
-        if (!tp) return &ffi_type_void;
-
-        if (tp->isPrimitive()) {
-            switch (tp->getPrimitiveType()) {
-                case Primitive::pt_char: return &ffi_type_schar;
-                case Primitive::pt_i8: return &ffi_type_sint8;
-                case Primitive::pt_i16: return &ffi_type_sint16;
-                case Primitive::pt_i32: return &ffi_type_sint32;
-                case Primitive::pt_i64: return &ffi_type_sint64;
-                case Primitive::pt_u8: return &ffi_type_uint8;
-                case Primitive::pt_u16: return &ffi_type_uint16;
-                case Primitive::pt_u32: return &ffi_type_uint32;
-                case Primitive::pt_u64: return &ffi_type_uint64;
-                case Primitive::pt_f32: return &ffi_type_float;
-                case Primitive::pt_f64: return &ffi_type_double;
-                default: break;
-            }
-        }
-
-        return &ffi_type_pointer;
-    }
-
     void Call_ThisCall(const v8::FunctionCallbackInfo<v8::Value>& callInfo, Function* target) {
         v8::Isolate* isolate = callInfo.GetIsolate();
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
-        Function* f = (Function*)callInfo.Data().As<v8::External>()->Value();
-        FunctionSignature& sig = f->getSignature();
+        FunctionSignature& sig = target->getSignature();
         utils::Array<FunctionArgument>& expectedArgs = sig.getArgs();
 
         void* thisPtr = extractThisPointer(callInfo.This(), isolate);
@@ -99,18 +75,25 @@ namespace t4ext {
                 return;
             }
 
-            argTypes[i + 1] = info.flags.is_pointer ? &ffi_type_pointer : ffiType(info.type);
+            argTypes[i + 1] = info.flags.is_pointer ? &ffi_type_pointer : info.type->getFFI();
             argValues[i + 1] = &tempValueStorage[i + 1];
         }
 
-        if (ffi_prep_cif(&cif, FFI_THISCALL, expectedArgs.size() + 1, ffiType(sig.getRetTp()), argTypes) != FFI_OK) {
-            v8Throw(isolate, "Failed to prepare FFI for call to function '%s'", f->getName().c_str());
+        ffi_type* retTp = sig.returnsPointer() ? &ffi_type_pointer : (sig.getRetTp() ? sig.getRetTp()->getFFI() : nullptr);
+
+        if (ffi_prep_cif(&cif, FFI_THISCALL, expectedArgs.size() + 1, retTp ? retTp : &ffi_type_void, argTypes) != FFI_OK) {
+            v8Throw(isolate, "Failed to prepare FFI for call to function '%s::%s'", sig.getThisTp()->getName().c_str(), target->getName().c_str());
             // delete them all regardless of 'doFree' because the call will not occur
             for (u32 a = 0;a < allocs.size();a++) delete [] allocs[a].alloc;
             return;
         }
 
-        void* returnValue = nullptr;
+        if (retTp && !sig.returnsPointer() && retTp->size != sig.getRetTp()->getSize()) {
+            v8Throw(isolate, "Function '%s::%s' returns '%s' by value, but it is not fully defined so libffi will be unable to handle it", sig.getThisTp()->getName().c_str(), target->getName().c_str(), sig.getRetTp()->getName().c_str());
+            return;
+        }
+
+        u64 returnValue = 0;
         ffi_call(&cif, (void(*)())target->getAddress(), &returnValue, argValues);
 
         if (sig.getRetTp()) {
@@ -127,6 +110,12 @@ namespace t4ext {
                 for (u32 a = 0;a < allocs.size();a++) {
                     if (allocs[a].doFree) delete [] allocs[a].alloc;
                 }
+
+                if (returnValue && sig.getFlags().deallocate_return_after_call) {
+                    FunctionSignature::ReturnValueDeallocationCallback cb = sig.getReturnValueDeallocationCallback();
+                    if (cb) cb((u8*)returnValue);
+                    else delete [] (u8*)returnValue;
+                }
                 return;
             }
 
@@ -136,14 +125,19 @@ namespace t4ext {
         for (u32 a = 0;a < allocs.size();a++) {
             if (allocs[a].doFree) delete [] allocs[a].alloc;
         }
+
+        if (returnValue && sig.getFlags().deallocate_return_after_call) {
+            FunctionSignature::ReturnValueDeallocationCallback cb = sig.getReturnValueDeallocationCallback();
+            if (cb) cb((u8*)returnValue);
+            else delete [] (u8*)returnValue;
+        }
     }
 
     void Call_CDecl(const v8::FunctionCallbackInfo<v8::Value>& callInfo, Function* target) {
         v8::Isolate* isolate = callInfo.GetIsolate();
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
-        Function* f = (Function*)callInfo.Data().As<v8::External>()->Value();
-        FunctionSignature& sig = f->getSignature();
+        FunctionSignature& sig = target->getSignature();
         utils::Array<FunctionArgument>& expectedArgs = sig.getArgs();
 
         ffi_cif cif;
@@ -187,12 +181,19 @@ namespace t4ext {
                 return;
             }
 
-            argTypes[i] = info.flags.is_pointer ? &ffi_type_pointer : ffiType(info.type);
+            argTypes[i] = info.flags.is_pointer ? &ffi_type_pointer : info.type->getFFI();
             argValues[i] = &tempValueStorage[i];
         }
 
-        if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, expectedArgs.size(), ffiType(sig.getRetTp()), argTypes) != FFI_OK) {
-            v8Throw(isolate, "Failed to prepare FFI for call to function '%s'", f->getName().c_str());
+        ffi_type* retTp = sig.returnsPointer() ? &ffi_type_pointer : (sig.getRetTp() ? sig.getRetTp()->getFFI() : nullptr);
+
+        if (ffi_prep_cif(&cif, FFI_DEFAULT_ABI, expectedArgs.size(), retTp ? retTp : &ffi_type_void, argTypes) != FFI_OK) {
+            v8Throw(isolate, "Failed to prepare FFI for call to function '%s'", target->getName().c_str());
+            return;
+        }
+
+        if (retTp && !sig.returnsPointer() && retTp->size != sig.getRetTp()->getSize()) {
+            v8Throw(isolate, "Function '%s' returns '%s' by value, but it is not fully defined so libffi will be unable to handle it", target->getName().c_str(), sig.getRetTp()->getName().c_str());
             return;
         }
 
@@ -213,6 +214,13 @@ namespace t4ext {
                 for (u32 a = 0;a < allocs.size();a++) {
                     if (allocs[a].doFree) delete [] allocs[a].alloc;
                 }
+
+                if (returnValue && sig.getFlags().deallocate_return_after_call) {
+                    FunctionSignature::ReturnValueDeallocationCallback cb = sig.getReturnValueDeallocationCallback();
+                    if (cb) cb((u8*)returnValue);
+                    else delete [] (u8*)returnValue;
+                }
+
                 return;
             }
 
@@ -221,6 +229,12 @@ namespace t4ext {
         
         for (u32 a = 0;a < allocs.size();a++) {
             if (allocs[a].doFree) delete [] allocs[a].alloc;
+        }
+
+        if (returnValue && sig.getFlags().deallocate_return_after_call) {
+            FunctionSignature::ReturnValueDeallocationCallback cb = sig.getReturnValueDeallocationCallback();
+            if (cb) cb((u8*)returnValue);
+            else delete [] (u8*)returnValue;
         }
     }
 

@@ -13,6 +13,14 @@ namespace t4ext {
         tp->bind("removeUpdateListener", &CGame::removeUpdateListener);
         tp->bind("addRenderListener", &CGame::addRenderListener);
         tp->bind("removeRenderListener", &CGame::removeRenderListener);
+        tp->bind("addActorCreateListener", &CGame::addActorCreateListener);
+        tp->bind("removeActorCreateListener", &CGame::removeActorCreateListener);
+        tp->bind("addActorDestroyListener", &CGame::addActorDestroyListener);
+        tp->bind("removeActorDestroyListener", &CGame::removeActorDestroyListener);
+        tp->bind("addLevelCreateListener", &CGame::addLevelCreateListener);
+        tp->bind("removeLevelCreateListener", &CGame::removeLevelCreateListener);
+        tp->bind("addLevelDestroyListener", &CGame::addLevelDestroyListener);
+        tp->bind("removeLevelDestroyListener", &CGame::removeLevelDestroyListener);
         tp->bind("disableInput", &CGame::disableInput);
         tp->bind("enableInput", &CGame::enableInput);
     }

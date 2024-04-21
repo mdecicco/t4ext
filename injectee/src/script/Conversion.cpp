@@ -1,5 +1,6 @@
 #include <script/Conversion.h>
 #include <script/TypeScriptAPI.h>
+#include <script/IScriptAPI.hpp>
 #include <script/TSHelpers.h>
 #include <script/Calling.h>
 
@@ -31,6 +32,36 @@ namespace t4ext {
         if (tp->isFunction()) {
             // unsupported behavior
             return false;
+        }
+
+        if (tp->isArray()) {
+            // should mimic utils::Array
+            struct _arr {
+                u32 size;
+                u32 capacity;
+                u8* data;
+            };
+            _arr* arrIn = isPtr ? *(_arr**)hostObj : (_arr*)hostObj;
+            utils::Array<v8::Local<v8::Value>> elems;
+            
+            DataType* elemTp = tp->getElementType();
+            bool elemTpPtr = tp->areElementsPointers();
+            u32 elemSz = tp->getElementType()->getSize();
+
+            for (u32 i = 0;i < arrIn->size;i++) {
+                v8::Local<v8::Value> elem;
+                if (!convertToV8(arrIn->data + (i * elemSz), &elem, elemTp, elemTpPtr, isolate, failurePath, nullptr)) {
+                    const char* op = isPtr ? "->" : ".";
+                    if (selfField) failurePath = op + utils::String::Format("[%d]", i) + failurePath;
+                    else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
+                    
+                    return false;
+                }
+                elems.push(elem);
+            }
+
+            *out = v8::Array::New(isolate, elems.data(), elems.size());
+            return true;
         }
 
         if (tp->isPrimitive()) {
@@ -78,17 +109,21 @@ namespace t4ext {
         // define fields
         utils::Array<DataTypeField>& fields = tp->getFields();
         for (DataTypeField& f : fields) {
-            v8::Local<v8::Value> prop;
+            if (f.flags.use_v8_accessors == 0) {
+                v8::Local<v8::Value> prop;
 
-            if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
-                const char* op = isPtr ? "->" : ".";
-                if (selfField) failurePath = op + f.name + failurePath;
-                else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
-                
-                return false;
+                if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
+                    const char* op = isPtr ? "->" : ".";
+                    if (selfField) failurePath = op + f.name + failurePath;
+                    else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
+                    
+                    return false;
+                }
+
+                v8SetProp(obj, f.name, prop);
+                continue;
             }
 
-            v8SetProp(obj, f.name, prop);
             v8SetPropAccessors(
                 obj,
                 f.name,
@@ -390,8 +425,58 @@ namespace t4ext {
 
             // todo: callback / callback data allocators???
             v8::Local<v8::Function> func = in.As<v8::Function>();
-            *destObj = new TypeScriptCallback(func);
+            *destObj = new Callback<void>(new TypeScriptCallbackData(func));
 
+            return true;
+        }
+
+        if (tp->isArray()) {
+            if (!in->IsArray()) {
+                v8::String::Utf8Value typeStr(isolate, in->TypeOf(isolate));
+                failureReason = utils::String::Format("Expected array value but %s was provided", *typeStr);
+                return false;
+            }
+
+            v8::Local<v8::Array> arr = in.As<v8::Array>();
+            DataType* elemTp = tp->getElementType();
+            bool elemTpPtr = tp->areElementsPointers();
+            u32 elemSz = tp->getElementType()->getSize();
+            u32 length = arr->Length();
+
+            // must mimic utils::Array
+            struct _arr {
+                u32 size;
+                u32 capacity;
+                u8* data;
+            };
+            _arr* outArr = (_arr*)new u8[sizeof(_arr)];
+            outAllocs.push({ (u8*)outArr, true });
+            outArr->size = length;
+            outArr->capacity = length;
+            outArr->data = nullptr;
+
+            if (length > 0) {
+                outArr->data = new u8[length * elemSz];
+                outAllocs.push({ outArr->data, true });
+
+                v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+                for (u32 i = 0;i < length;i++) {
+                    void* fieldPtr = outArr->data + (i * elemSz);
+                    v8::Local<v8::Value> elem;
+                    if (!arr->Get(ctx, i).ToLocal(&elem)) {
+                        failureReason = utils::String::Format("Failed to obtain value at array index %d with element type '%s'", i, elemTp->getName().c_str());
+                        return false;
+                    }
+
+                    if (!convertFromV8((void**)fieldPtr, elem, elemTp, elemTpPtr, outAllocs, isolate, failurePath, failureReason, selfField)) {
+                        if (selfField) failurePath = utils::String::Format("[%d]", i) + failurePath;
+                        else failurePath = utils::String::Format("value.%s", failurePath.c_str());
+                        return false;
+                    }
+                }
+            }
+
+            *destObj = outArr;
             return true;
         }
 
@@ -401,18 +486,11 @@ namespace t4ext {
             return false;
         }
 
-        void* objStorage = destObj;
-        if (expectsPtr) {
-            objStorage = new u8[tp->getSize()];
-            outAllocs.push({ (u8*)objStorage, true });
-            *destObj = objStorage;
-        }
-
         void* existingHostObj = extractThisPointer(in.As<v8::Object>(), isolate);
         if (existingHostObj) {
             if (expectsPtr) {
                 // cool, easy
-                *(void**)objStorage = existingHostObj;
+                *destObj = existingHostObj;
                 return true;
             }
 
@@ -421,8 +499,18 @@ namespace t4ext {
             //
             // It will likely become necessary to bind copy constructors to
             // data types just for this
-            memcpy(objStorage, existingHostObj, tp->getSize());
+            //
+            // note: this function checked earlier if the type can fit within a void*, this memcpy
+            //       shouldn't corrupt anything
+            memcpy(destObj, existingHostObj, tp->getSize());
             return true;
+        }
+        
+        void* objStorage = destObj;
+        if (expectsPtr) {
+            objStorage = new u8[tp->getSize()];
+            outAllocs.push({ (u8*)objStorage, true });
+            *destObj = objStorage;
         }
 
         if (tp->getFlags().needs_host_construction) {
@@ -456,6 +544,7 @@ namespace t4ext {
     
     void specifyThisPointer(v8::Local<v8::Object>& onObject, void* thisPointer, DataType* type, v8::Isolate* isolate) {
         v8SetProp(onObject, "__this_ptr", v8::External::New(isolate, thisPointer));
+        v8SetProp(onObject, "__obj_id", v8::Uint32::New(isolate, (u32)thisPointer));
         v8SetProp(onObject, "__type_ptr", v8::External::New(isolate, type));
     }
 

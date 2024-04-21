@@ -21,27 +21,11 @@
 #include <stdarg.h>
 
 namespace tsc {
-    bool compileEntryScript(t4ext::TypeScriptAPI* api) {
-        utils::String compilerPath = api->getGameBasePath() + "/scripts/compiler/tsc.exe";
-        utils::String outputPath = api->getGameBasePath() + "/scripts/output/package.js";
+    HANDLE tscHandle = nullptr;
+    utils::Thread tscThread;
 
-        // check if input file actually exists
-        struct stat inputStat;
-        if (stat(api->getScriptEntrypointPath().c_str(), &inputStat) != 0) {
-            api->error("Script entrypoint '%s' does not exist", api->getScriptEntrypointPath().c_str());
-            return false;
-        }
-
-        // todo: check for file modifications to see if we can exit early
-
-        struct stat outputStat;
-        if (stat(outputPath.c_str(), &outputStat) == 0) {
-            // delete the previous script
-            if (std::remove(outputPath.c_str()) != 0) {
-                api->error("Failed to delete previously compiled script");
-                return false;
-            }
-        }
+    bool StartCompilerProcess(t4ext::TypeScriptAPI* api) {
+        utils::String compilerPath = api->getGameBasePath() + "/scripts/compiler/node.exe";
 
         STARTUPINFO si;
         PROCESS_INFORMATION pi;
@@ -78,58 +62,59 @@ namespace tsc {
 
         ZeroMemory(&pi, sizeof(pi));
 
-        utils::String args = "\"" + compilerPath + "\" -p ./tsconfig.json -outFile ./output/package.js";
+        bool exitMonitor = false;
+        bool monitorExited = false;
+        utils::Thread logMonitor([readPipe, api, &exitMonitor, &monitorExited](){
+            char chBuf[4096] = { 0 };
+            utils::String lineBuf;
+
+            utils::IWithLogging tscLog("tsc");
+            tscLog.subscribeLogger(api);
+
+            while (!exitMonitor) {
+                DWORD dwRead;
+                if (ReadFile(readPipe, chBuf, 4096, &dwRead, NULL) == 0 || dwRead == 0) break;
+
+                for (utils::u32 i = 0;i < 4096 && chBuf[i] != 0;i++) {
+                    if (chBuf[i] == '\n' || chBuf[i] == '\r') {
+                        if (lineBuf.size() == 0) continue;
+                        tscLog.log(lineBuf);
+                        lineBuf = "";
+                        continue;
+                    }
+
+                    lineBuf += chBuf[i];
+                }
+
+                memset(chBuf, 0, dwRead);
+            }
+
+            monitorExited = true;
+        });
+
+        utils::String args = "\"" + compilerPath + "\" ./compiler/node_modules/typescript/bin/tsc -p ./tsconfig.json -w";
         utils::String cwd = api->getGameBasePath() + "/scripts";
-        if (CreateProcessA(compilerPath.c_str(), (LPSTR)args.c_str(), NULL, NULL, TRUE, 0, NULL, cwd.c_str(), &si, &pi) == 0) {
+        if (CreateProcessA(compilerPath.c_str(), (LPSTR)args.c_str(), NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, cwd.c_str(), &si, &pi) == 0) {
             api->error("Failed to spawn compiler process");
             CloseHandle(readPipe);
             CloseHandle(writePipe);
             return false;
         }
 
-        api->log("Waiting for compiler...");
+        tscHandle = pi.hProcess;
+
+        api->log("Compiler process spawned");
         WaitForSingleObject(pi.hProcess, INFINITE);
 
+        exitMonitor = true;
+        while (!monitorExited) {}
+
         CloseHandle(writePipe);
-        
-        char chBuf[4096] = { 0 };
-        utils::String lineBuf;
-
-        while (true) {
-            DWORD dwRead;
-            if (ReadFile(readPipe, chBuf, 4096, &dwRead, NULL) == 0 || dwRead == 0) break;
-
-            for (utils::u32 i = 0;i < 4096 && chBuf[i] != 0;i++) {
-                if (chBuf[i] == '\n' || chBuf[i] == '\r') {
-                    if (lineBuf.size() == 0) continue;
-                    programOutput.push(lineBuf);
-                    lineBuf = "";
-                    continue;
-                }
-
-                lineBuf += chBuf[i];
-            }
-
-            memset(chBuf, 0, dwRead);
-        }
-
         CloseHandle(readPipe);
-
-        if (lineBuf.size() > 0) {
-            programOutput.push(lineBuf);
-        }
-
-        utils::IWithLogging tscLog("tsc");
-        tscLog.subscribeLogger(api);
-        if (programOutput.size() > 0) {
-            for (utils::String& log : programOutput) {
-                tscLog.log(log);
-            }
-        }
 
         DWORD exitCode = 0;
         if (GetExitCodeProcess(pi.hProcess, &exitCode) == 0) {
-            api->error("Compilation may have succeeded, but we were unable to get the exit code of the compiler process");
+            api->error("Compilation may have succeeded, but we were unable to get the exit code");
             CloseHandle(pi.hProcess);
             CloseHandle(pi.hThread);
             return false;
@@ -143,30 +128,25 @@ namespace tsc {
             return false;
         }
 
-        // Make sure it actually generated the file
-        if (stat(outputPath.c_str(), &outputStat) != 0) {
-            api->error("Compilation apparently succeeded, but the output file does not exist");
-            return false;
-        }
-
-        api->log("Compilation succeeded");
+        api->log("Compiler process exited with a good status code, nice");
 
         return true;
     }
 };
 
 namespace t4ext {
-    TypeScriptCallback::TypeScriptCallback(const v8::Local<v8::Function>& func) {
+    TypeScriptCallbackData::TypeScriptCallbackData(const v8::Local<v8::Function>& func) {
         m_callback.Reset(func->GetIsolate(), func);
     }
 
-    TypeScriptCallback::~TypeScriptCallback() {
+    TypeScriptCallbackData::~TypeScriptCallbackData() {
         m_callback.Reset();
     }
     
-    v8::Local<v8::Function> TypeScriptCallback::get(v8::Isolate* isolate) {
+    v8::Local<v8::Function> TypeScriptCallbackData::get(v8::Isolate* isolate) {
         return m_callback.Get(isolate);
     }
+
 
 
     TypeScriptAPI::TypeScriptAPI() {
@@ -174,18 +154,227 @@ namespace t4ext {
         m_isolate = nullptr;
         m_arrayBufferAllocator = nullptr;
         m_didInitialize = false;
+        m_entryModificationTimeOnStartup = 0;
     }
 
     TypeScriptAPI::~TypeScriptAPI() {
     }
 
-    TypeScriptAPI::ModuleInfo* TypeScriptAPI::getModule(const utils::String& moduleId) {
+    TypeScriptAPI::ModuleInfo* TypeScriptAPI::getModule(const utils::String& moduleId, bool doReload) {
         auto it = m_modules.find(moduleId);
-        if (it == m_modules.end()) return nullptr;
+        if (it != m_modules.end()) {
+            ModuleInfo* m = it->second;
+            if (doReload) unloadModule(m);
+            else return m;
+        }
+        // didn't think that would work anyway...
+
+        std::filesystem::path mpath(moduleId.c_str());
+        if (!mpath.has_extension()) mpath.replace_extension(".js");
+
+        utils::String filename = mpath.filename().string();
+        utils::String origin = mpath.remove_filename().string();
+        bool didPushOrigin = false;
+        if (origin != "./") {
+            utils::String path;
+            if (m_requireOriginStack.size() > 0) path = m_requireOriginStack.last();
+
+            if (origin[0] == '.' && origin[1] == '/') {
+                path += utils::String::View(origin.c_str() + 2, origin.size() - 2);
+            } else {
+                path += origin;
+            }
+
+            m_requireOriginStack.push(path);
+            didPushOrigin = true;
+        }
+
+        utils::Array<utils::String> tryPaths = {
+            filename
+        };
+
+        if (m_requireOriginStack.size() > 0) {
+            const utils::String& base = m_requireOriginStack.last();
+            if (base[0] == '.' && base[1] == '/') {
+                utils::String p = base.c_str() + 2;
+                tryPaths.push(p + filename);
+            } else tryPaths.push(base + filename);
+        }
+
+        for (utils::String& p : tryPaths) p = getGameBasePath() + "/scripts/output/" + p;
+
+        utils::String foundAt;
+        for (const utils::String& path : tryPaths) {
+            struct stat fstat;
+            if (stat(path.c_str(), &fstat) == 0) {
+                foundAt = path;
+                break;
+            }
+        }
+
+        if (foundAt.size() == 0) {
+            error("Could not find module '%s', tried paths:", moduleId.c_str());
+            for (const utils::String& path : tryPaths) {
+                log("    - %s", path.c_str());
+            }
+        
+            if (didPushOrigin) m_requireOriginStack.pop();
+            return nullptr;
+        }
+
+        utils::String actualModuleId = "./" + std::filesystem::relative(
+            std::filesystem::path(foundAt.c_str()),
+            (m_pathBase + "/scripts/output").c_str()
+        ).string();
+
+        actualModuleId.replaceAll('\\', '/');
+
+        // Try again with the module path relative to the base directory
+        it = m_modules.find(actualModuleId);
+        if (it != m_modules.end()) {
+            ModuleInfo* m = it->second;
+            if (doReload) unloadModule(m);
+            else {
+                if (didPushOrigin) m_requireOriginStack.pop();
+                return m;
+            }
+        }
+
+        m_requestedModule = actualModuleId;
+
+        // try to load it
+        utils::Buffer* buf = utils::Buffer::FromFile(foundAt, true);
+        if (!buf) {
+            error("Found module '%s' at path '%s', but failed to open it", moduleId.c_str(), foundAt.c_str());
+            if (didPushOrigin) m_requireOriginStack.pop();
+            return nullptr;
+        }
+
+        bool didSucceed = false;
+        v8::Local<v8::String> source;
+        if (v8::String::NewFromUtf8(m_isolate, (const char*)buf->data()).ToLocal(&source)) {
+            didSucceed = execute(source);
+        }
+        
+        delete buf;
+
+        if (didPushOrigin) m_requireOriginStack.pop();
+
+        if (!didSucceed) {
+            error("Module '%s' was found at '%s', but there were errors when initializing it", moduleId.c_str(), foundAt.c_str());
+            return nullptr;
+        }
+        
+        // see if it's defined _now_
+        it = m_modules.find(actualModuleId);
+        if (it == m_modules.end()) {
+            // It's not, but the execution succeeded so it must not be a true module (no exports, no factory function, etc...)
+            // As such, `define` wasn't called, so we have to define it here
+            ModuleInfo* m = new ModuleInfo;
+            m->id = actualModuleId;
+
+            // reset this, since normally `define` would do it
+            m_requestedModule = "";
+
+            m_modules[actualModuleId] = m;
+
+            return m;
+        }
+
         return it->second;
     }
 
+    v8::Local<v8::Object> TypeScriptAPI::loadModule(ModuleInfo* module) {
+        log("Loading module '%s'", module->id.c_str());
+
+        if (module->exports.IsEmpty()) {
+            v8::Local<v8::Object> exports = v8::Object::New(m_isolate);
+
+            if (module->factory.IsEmpty()) {
+                warn("Nothing to do for '%s', it's not a module. It did execute though. This is likely not an issue.", module->id.c_str());
+                module->exports.Reset(m_isolate, exports);
+                return exports;
+            }
+
+            utils::Array<v8::Local<v8::Value>> deps;
+            for (u32 i = 0;i < module->dependencies.size();i++) {
+                utils::String& depId = module->dependencies[i];
+                if (depId == "require") {
+                    v8::Local<v8::External> self = v8::External::New(m_isolate, this);
+                    deps.push(v8Func(m_isolate, requireFunc, self));
+                } else if (depId == "exports") {
+                    deps.push(exports);
+                } else {
+                    utils::String origin = std::filesystem::path(module->id.c_str()).remove_filename().string();
+                    m_requireOriginStack.push(origin);
+                    ModuleInfo* depMod = getModule(depId);
+                    m_requireOriginStack.pop();
+
+
+                    if (!depMod) {
+                        // In some cases, the compiled code of a module can may be placed "inline" at the locations
+                        // where they are imported, rather than going through the 'define' function. In these cases,
+                        // the dependency won't have any exports
+                        //
+                        // Keep an eye on this, even it's possible the behavior required in that scenario is more
+                        // nuanced than just "don't pass the corresponding argument to the factory functions"
+                        
+                        continue;
+                    }
+
+                    deps.push(loadModule(depMod));
+                }
+            }
+
+            {
+                v8::TryCatch tc(m_isolate);
+                tc.SetVerbose(true);
+                
+                v8::Local<v8::Function> factory = module->factory.Get(m_isolate);
+                factory->Call(m_context, m_context->Global(), deps.size(), deps.data());
+
+                if (tc.HasCaught()) {
+                    error("In module '%s'", module->id.c_str());
+                    logException(tc);
+                }
+            }
+
+            module->exports.Reset(m_isolate, exports);
+            return exports;
+        }
+
+        return module->exports.Get(m_isolate);
+    }
+    
+    void TypeScriptAPI::unloadModule(ModuleInfo* m) {
+        log("Unloading module '%s'", m->id.c_str());
+
+        if (!m->exports.IsEmpty()) {
+            m->exports.SetWeak();
+            m->exports.Reset();
+        }
+
+        if (!m->factory.IsEmpty()) {
+            m->factory.SetWeak();
+            m->factory.Reset();
+        }
+
+        for (auto it = m_modules.begin();it != m_modules.end();++it) {
+            if (it->second == m) {
+                m_modules.erase(it);
+                break;
+            }
+        }
+
+        delete m;
+    }
+
     void TypeScriptAPI::defineModule(ModuleInfo* module) {
+        if (module->id.size() == 0) {
+            module->id = m_requestedModule;
+            m_requestedModule = "";
+        }
+
         m_modules[module->id] = module;
     }
     
@@ -217,6 +406,7 @@ namespace t4ext {
 
         v8::Isolate::CreateParams cp;
         cp.array_buffer_allocator = m_arrayBufferAllocator;
+        cp.constraints.ConfigureDefaultsFromHeapSize(0, 2147483648);
 
         m_isolate = v8::Isolate::New(cp);
         if (!m_isolate) {
@@ -235,17 +425,29 @@ namespace t4ext {
         log("Generating globals.d.ts...");
         if (!generateDefs()) return false;
 
-        log("Compiling script entrypoint...");
-        if (!tsc::compileEntryScript(this)) {
-            // errors should've already been emitted
-            return false;
+        // get the current modification time of the compiled entry script, if it exists
+        struct stat entryStat;
+        if (stat((m_pathBase + "/scripts/output/internal/entry.js").c_str(), &entryStat) == 0) {
+            m_entryModificationTimeOnStartup = entryStat.st_mtime;
         }
+
+        log("Launching the compiler in watch mode...");
+        tsc::tscThread.reset([this](){
+            tsc::StartCompilerProcess(this);
+        });
 
         return true;
     }
     
     bool TypeScriptAPI::shutdown() {
         if (!m_didInitialize) return true;
+
+        if (tsc::tscHandle) {
+            log("Terminating compiler process...");
+            if (!TerminateProcess(tsc::tscHandle, 0)) {
+                error("Failed to terminate the tsc.exe process, sorry about that. You may wanna open task manager and do it yourself");
+            }
+        }
 
         for (auto it = m_modules.begin();it != m_modules.end();++it) {
             it->second->exports.Reset();
@@ -275,13 +477,27 @@ namespace t4ext {
     bool TypeScriptAPI::executeEntry() {
         if (!m_didInitialize) return false;
 
-        log("Executing the entrypoint...");
+        // get the current modification time of the compiled entry script, if it exists
+        struct stat entryStat;
+        log("Waiting for compiler process to compile the entry point...");
+        utils::Timer tmr;
+        tmr.start();
+        do {
+            if (stat((m_pathBase + "/scripts/output/internal/entry.js").c_str(), &entryStat) != 0) {
+                utils::Thread::Sleep(200);
+                continue;
+            }
 
-        utils::Buffer* buf = utils::Buffer::FromFile(m_pathBase + "/scripts/output/package.js", true);
-        if (!buf) {
-            error("Failed to open script '%s'");
+            if (entryStat.st_mtime > m_entryModificationTimeOnStartup) break;
+            utils::Thread::Sleep(200);
+        } while (tmr.elapsed() < 10.0f);
+
+        if (entryStat.st_mtime == m_entryModificationTimeOnStartup) {
+            error("Timed out while waiting for the compiler process... No mods today!");
             return false;
         }
+
+        log("Executing the entrypoint...");
 
         bool didSucceed = false;
 
@@ -294,37 +510,73 @@ namespace t4ext {
 
             setupContext();
 
-            v8::Local<v8::String> source;
-            if (v8::String::NewFromUtf8(m_isolate, (const char*)buf->data()).ToLocal(&source)) {
-                didSucceed = execute(source);
-            }
-            
-            delete buf;
+            ModuleInfo* mainModule = getModule("./internal/entry");
+            if (mainModule) {
+                m_isReady = true;
+                loadModule(mainModule);
 
-            if (didSucceed) {
-                ModuleInfo* mainModule = getModule("main");
-                if (!mainModule) {
-                    error("Successfully compiled and initialized the entrypoint, but failed to obtain the main module");
-                    didSucceed = false;
-                } else {
-                    // all aboard
-                    m_isReady = true;
-                    loadModule(mainModule);
-                }
+                // there might've been errors, but we're mainly concerned that it actually resolved here
+                didSucceed = true;
             }
         }
 
         return didSucceed;
     }
 
-    void TypeScriptAPI::logException(const v8::TryCatch& tc) {
-        v8::String::Utf8Value exc_str(m_isolate, tc.Exception());
-        error(*exc_str);
+    void TypeScriptAPI::scriptException(const utils::String& msg) {
+        v8Throw(m_isolate, msg.c_str());
+    }
 
-        v8::Local<v8::Value> trace;
-        if (tc.StackTrace(m_context).ToLocal(&trace)) {
-            v8::String::Utf8Value trace_str(m_isolate, trace);
-            error(*trace_str);
+    void TypeScriptAPI::logException(const v8::TryCatch& tc) {
+        utils::String traceStr;
+        v8::Local<v8::Value> stackTrace;
+        if (tc.StackTrace(m_context).ToLocal(&stackTrace) && stackTrace->IsString() && stackTrace.As<v8::String>()->Length() > 0) {
+            traceStr = *v8::String::Utf8Value(m_isolate, stackTrace);
+        }
+
+        v8::Local<v8::Message> msg = tc.Message();
+        if (!msg.IsEmpty()) {
+            // todo: source mapping?
+
+            utils::String msgStr = *v8::String::Utf8Value(m_isolate, msg->Get());
+            utils::String fileStr;
+            utils::String lineStr;
+            i32 lineNum = msg->GetLineNumber(m_context).FromMaybe(-1);
+            i32 colStart = msg->GetStartColumn(m_context).FromMaybe(-1);
+            i32 colEnd = msg->GetEndColumn(m_context).FromMaybe(-1);
+
+            v8::String::Utf8Value file(m_isolate, msg->GetScriptOrigin().ResourceName());
+            fileStr = *file;
+            v8::Local<v8::String> lineStrV;
+            if (msg->GetSourceLine(m_context).ToLocal(&lineStrV)) {
+                lineStr = *v8::String::Utf8Value(m_isolate, lineStrV);
+            }
+
+            // error(msgStr);
+
+            if (lineStr.size() > 0) {
+                utils::String prefix;
+                if (lineNum >= 0) utils::String::Format("%d | ", lineNum);
+                error(prefix + lineStr);
+
+                if (colStart == -1 && colEnd >= 0) colStart = colEnd;
+                if (colEnd == -1 && colStart >= 0) colEnd = colStart;
+                if (colStart >= 0) {
+                    utils::String idxStr;
+                    for (u32 i = 0;i < prefix.size();i++) idxStr += ' ';
+                    for (u32 i = 0;i <= colEnd;i++) {
+                        if (i >= colStart) idxStr += '^';
+                        else idxStr += ' ';
+                    }
+
+                    error(idxStr);
+                }
+            }
+
+            if (traceStr.size() > 0) {
+                utils::Array<utils::String> lines = traceStr.split({ "\n", "\r" });
+                for (utils::String& tln : lines) error(tln);
+            }
         }
     }
 
@@ -369,53 +621,11 @@ namespace t4ext {
         return didSucceed;
     }
 
-    v8::Local<v8::Object> TypeScriptAPI::loadModule(ModuleInfo* module) {
-        if (module->exports.IsEmpty()) {
-            v8::Local<v8::Object> exports = v8::Object::New(m_isolate);
-
-            if (module->factory.IsEmpty()) {
-                warn("Nothing to do for module '%s'", module->id.c_str());
-                module->exports.Reset(m_isolate, exports);
-                return exports;
-            }
-
-            utils::Array<v8::Local<v8::Value>> deps;
-            for (u32 i = 0;i < module->dependencies.size();i++) {
-                utils::String& depId = module->dependencies[i];
-                if (depId == "require") {
-                    deps.push(v8::FunctionTemplate::New(m_isolate, requireFunc)->GetFunction(m_context).ToLocalChecked());
-                } else if (depId == "exports") {
-                    deps.push(exports);
-                } else {
-                    ModuleInfo* depMod = getModule(depId);
-                    if (!depMod) {
-                        // In some cases, the compiled code of a module can may be placed "inline" at the locations
-                        // where they are imported, rather than going through the 'define' function. In these cases,
-                        // the dependency won't have any exports
-                        //
-                        // Keep an eye on this, even it's possible the behavior required in that scenario is more
-                        // nuanced than just "don't pass the corresponding argument to the factory functions"
-                        
-                        continue;
-                    }
-
-                    deps.push(loadModule(depMod));
-                }
-            }
-
-            v8::Local<v8::Function> factory = module->factory.Get(m_isolate);
-            factory->Call(m_context, m_context->Global(), deps.size(), deps.data());
-
-            module->exports.Reset(m_isolate, exports);
-            return exports;
-        }
-
-        return module->exports.Get(m_isolate);
-    }
-
     void TypeScriptAPI::setupContext() {
         v8::Local<v8::Object> global = m_context->Global();
         v8::Local<v8::String> key;
+
+        v8SetProp(global, "global", global);
         
         key = v8::String::NewFromUtf8Literal(m_isolate, "console");
         v8::Local<v8::Value> consoleV;
@@ -440,6 +650,22 @@ namespace t4ext {
             v8StrLiteral(m_isolate, "elapsedTime"),
             v8Func(m_isolate, +[](const v8::FunctionCallbackInfo<v8::Value>& args){
                 args.GetReturnValue().Set(v8::Number::New(args.GetIsolate(), gClient::Get()->elapsedTime()));
+            }),
+            v8::Local<v8::Function>(),
+            v8::PropertyAttribute::ReadOnly
+        );
+        t4->SetAccessorProperty(
+            v8StrLiteral(m_isolate, "gameDirectory"),
+            v8Func(m_isolate, +[](const v8::FunctionCallbackInfo<v8::Value>& args){
+                args.GetReturnValue().Set(v8Str(args.GetIsolate(), gClient::Get()->getAPI()->getGameBasePath()));
+            }),
+            v8::Local<v8::Function>(),
+            v8::PropertyAttribute::ReadOnly
+        );
+        t4->SetAccessorProperty(
+            v8StrLiteral(m_isolate, "scriptDirectory"),
+            v8Func(m_isolate, +[](const v8::FunctionCallbackInfo<v8::Value>& args){
+                args.GetReturnValue().Set(v8Str(args.GetIsolate(), gClient::Get()->getAPI()->getScriptPath()));
             }),
             v8::Local<v8::Function>(),
             v8::PropertyAttribute::ReadOnly
@@ -497,6 +723,11 @@ namespace t4ext {
             return str;
         }
 
+        if (tp->isArray()) {
+            if (isPtr && isNullable) return tp->getElementType()->getName() + "[]" + " | null";
+            else return tp->getElementType()->getName() + "[]";
+        }
+
         if (isPtr && isNullable) return tp->getName() + " | null";
         return tp->getName();
     }
@@ -522,15 +753,17 @@ namespace t4ext {
         };
 
         for (ScriptNamespace* ns : m_namespaces) {
+            bool noNamespace = true;
             if (ns->name.size() > 0) {
                 l("declare namespace %s {", ns->name.c_str());
                 indent++;
+                noNamespace = false;
             }
             
             bool isFirstType = true;
             bool lastWasPrim = false;
             for (DataType* tp : ns->types) {
-                if (tp->isFunction() || tp->getFlags().is_hidden) continue;
+                if (tp->isFunction() || tp->isArray() || tp->getFlags().is_hidden) continue;
 
                 if (!isFirstType && !(lastWasPrim && tp->isPrimitive() && tp->getPrimitiveType() != Primitive::pt_enum)) l("");
                 isFirstType = false;
@@ -610,7 +843,7 @@ namespace t4ext {
                         str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
                     }
 
-                    str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void").c_str() + ";";
+                    str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.getFlags().return_nullable) : "void").c_str() + ";";
                     
                     l("/**");
                     l(" * @address 0x%X", m->getAddress());
@@ -626,7 +859,7 @@ namespace t4ext {
 
             for (Function* f : ns->globalFunctions) {
                 FunctionSignature& sig = f->getSignature();
-                utils::String str = utils::String("function ") + f->getName();
+                utils::String str = utils::String(noNamespace ? "declare function " : "function ") + f->getName();
                 str += "(";
 
                 utils::Array<FunctionArgument>& args = sig.getArgs();
@@ -638,7 +871,7 @@ namespace t4ext {
                     str += a.name + ": " + tpName(a.type, a.flags.is_pointer, a.flags.is_nullable);
                 }
 
-                str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.returnsPointer()) : "void") + ";";
+                str += utils::String("): ") + (sig.getRetTp() ? tpName(sig.getRetTp(), sig.returnsPointer(), sig.getFlags().return_nullable) : "void") + ";";
                 
                 l("/**");
                 l(" * @address 0x%X", f->getAddress());
@@ -659,7 +892,7 @@ namespace t4ext {
                 l(" * @address 0x%X", g.address);
                 l(" * @size 0x%X (%d bytes)", sz, sz);
                 l(" */");
-                l("const %s: %s;", g.name.c_str(), tpName(g.type, g.flags.is_pointer, g.flags.is_nullable).c_str());
+                l(noNamespace ? "declare const %s: %s;" :"const %s: %s;", g.name.c_str(), tpName(g.type, g.flags.is_pointer, g.flags.is_nullable).c_str());
             }
 
             if (ns->name.size() > 0) {

@@ -100,11 +100,7 @@ namespace t4ext {
                 continue;
             }
 
-            TimeoutEvent* evt = (TimeoutEvent*)createEvent();
-            evt->m_timeoutId = n->m_id;
-            evt->m_actionType = TimeoutEvent::Type::ExecuteCallback;
-
-            gClient::Get()->getAPI()->dispatchEvent(evt);
+            gClient::Get()->getAPI()->dispatchEvent(createEvent(n->m_id));
 
             if (n->m_loop) {
                 n->m_tmr.reset();
@@ -117,39 +113,30 @@ namespace t4ext {
         }
     }
 
-    void TimeoutEventType::bind(DataType* eventTp) {
-        IEventType::bind(eventTp);
-
-        eventTp->addBase(eventTp->getApi()->getType<IEvent>());
-        eventTp->bind("timeoutId", &TimeoutEvent::m_timeoutId)->flags.is_readonly = 1;
-        eventTp->bind("actionType", &TimeoutEvent::m_actionType)->flags.is_readonly = 1;
-    }
-
     bool TimeoutEventType::canProduceEvents() {
         // If there are no active timeouts, there is no chance of any
         // timeout events occurring
         return m_timeouts != nullptr;
     }
     
-    IEvent* TimeoutEventType::createEvent() {
-        return new TimeoutEvent();
+    TimeoutEvent* TimeoutEventType::createEvent(u32 timeoutId) {
+        return new TimeoutEvent(timeoutId);
     }
     
-    void TimeoutEventType::destroyEvent(IEvent* event) {
-        delete (TimeoutEvent*)event;
+    void TimeoutEventType::destroyEvent(TimeoutEvent* event) {
+        delete event;
     }
     
-    TimeoutEvent::TimeoutEvent() : IEvent(utils::Singleton<TimeoutEventType>::Get()) {
+    TimeoutEvent::TimeoutEvent(u32 timeoutId) : IEvent(utils::Singleton<TimeoutEventType>::Get()) {
+        m_timeoutId = timeoutId;
     }
 
     TimeoutEvent::~TimeoutEvent() {
     }
 
     void TimeoutEvent::process(IScriptAPI* api) {
-        if (m_actionType == Type::ExecuteCallback) {
-            TimeoutEventType* tp = utils::Singleton<TimeoutEventType>::Get();
-            tp->executeTimeout(m_timeoutId);
-            tp->destroyEvent(this);
-        }
+        TimeoutEventType* tp = utils::Singleton<TimeoutEventType>::Get();
+        tp->executeTimeout(m_timeoutId);
+        tp->destroyEvent(this);
     }
 };

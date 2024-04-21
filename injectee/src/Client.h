@@ -11,6 +11,7 @@
 
 namespace t4ext {
     class d3dDevice;
+    class CGame;
     class CActor;
     class CLevel;
     class IScriptAPI;
@@ -32,7 +33,11 @@ namespace t4ext {
             void onBeforeRender();
             void onDeviceInit(d3dDevice* device);
             void onDeviceReset(d3dDevice* device);
-            void onActorCreated(CLevel* lvl, CActor* actor, const char* name, const char* type, const char* model);
+            void onEngineCreated(CGame* engine);
+            void onActorCreated(CActor* actor);
+            void onActorDestroyed(CActor* actor);
+            void onLevelCreated(CLevel* level);
+            void onLevelDestroyed(CLevel* level);
 
             virtual void onLogMessage(utils::LOG_LEVEL level, const utils::String& scope, const utils::String& message);
     
@@ -42,6 +47,7 @@ namespace t4ext {
             TypeScriptAPI* m_scriptAPI;
             utils::Timer m_runTime;
             utils::Thread m_scriptThread;
+            bool m_alreadyPeekedThisFrame;
     };
 
     using gClient = utils::Singleton<Client>;

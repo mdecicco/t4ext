@@ -37,13 +37,75 @@ namespace t4ext {
     }
 
     //
+    // Application creation hook
+    //
+    Application* (Application::*CreateApplication_orig)(undefined4);
+    Application* __fastcall CreateApplication_detour(Application* app, void* _EDX, undefined4 p1) {
+        (app->*CreateApplication_orig)(p1);
+        app->wantsFullScreen = false;
+        return app;
+    }
+
+    //
+    // CGame creation hook
+    //
+    CGame* (__cdecl *CreateEngine_orig)(undefined4);
+    CGame* __cdecl CreateEngine_detour(undefined4 p1) {
+        CGame* engine = CreateEngine_orig(p1);
+        gClient::Get()->onEngineCreated(engine);
+        return engine;
+    }
+
+    //
+    // CLevel creation hook
+    //
+    CLevel* (CLevel::*ConstructLevel_orig)(const char* p1);
+    CLevel* __fastcall ConstructLevel_detour(CLevel* level, void* _EDX, const char* p1) {
+        (level->*ConstructLevel_orig)(p1);
+        gClient::Get()->onLevelCreated(level);
+        return level;
+    }
+
+    //
+    // CLevel destruction hook
+    //
+    CLevel* (CLevel::*DestroyLevel_orig)(byte);
+    CLevel* __fastcall DestroyLevel_detour(CLevel* level, void* _EDX, byte p1) {
+        // not sure if this will ever be called or if the game exclusively uses CTurok4Level...
+        // They are both the same size so it doesn't really matter which type we use, we just need
+        // to track the lifetime of them
+        gClient::Get()->onLevelDestroyed(level);
+        (level->*DestroyLevel_orig)(p1);
+        return level;
+    }
+
+    //
+    // CTurok4Level destruction hook (it doesn't call the base dtor)
+    //
+    CLevel* (CLevel::*DestroyT4Level_orig)(byte);
+    CLevel* __fastcall DestroyT4Level_detour(CLevel* level, void* _EDX, byte p1) {
+        gClient::Get()->onLevelDestroyed(level);
+        (level->*DestroyT4Level_orig)(p1);
+        return level;
+    }
+
+    //
     // Actor creation hook
     //
     CActor* (CGame::*CreateActor_orig)(CLevel*, const char*, const char*, const char*);
     CActor* __fastcall CreateActor_detour(CGame* game, void * _EDX, CLevel* level, const char* name, const char* type, const char* mtfPath) {
         CActor* actor = (game->*CreateActor_orig)(level, name, type, mtfPath);
-        gClient::Get()->onActorCreated(level, actor, name, type, mtfPath);
+        gClient::Get()->onActorCreated(actor);
         return actor;
+    }
+
+    //
+    // Actor destruction hook
+    //
+    void (CActor::*DestroyActor_orig)();
+    void __fastcall DestroyActor_detour(CActor* actor, void * _EDX) {
+        gClient::Get()->onActorDestroyed(actor);
+        (actor->*DestroyActor_orig)();
     }
 
     //
@@ -62,7 +124,7 @@ namespace t4ext {
     bool (Application::*createWindow_orig)(const char*, u32, u32);
     bool __fastcall createWindow_detour(Application* app, void* _EDX, const char* title, u32 width, u32 height) {
         app->windowStyle = WS_OVERLAPPEDWINDOW;
-        bool result = (app->*createWindow_orig)(title, 1280, 720);
+        bool result = (app->*createWindow_orig)(title, 1920, 1080);
         if (result) gClient::Get()->onWindowCreated(app->windowHandle);
         return result;
     }
@@ -78,16 +140,42 @@ namespace t4ext {
     }
 
     //
+    // Game input processing
+    //
+
+    //
     // Hooks
     //
     void InstallHooks() {
+        // Hook Application constructor
+        MH_CreateHook((LPVOID)0x00401130, (LPVOID)&CreateApplication_detour, (LPVOID*)&CreateApplication_orig);
+        MH_EnableHook((LPVOID)0x00401130);
+
         // redirect game's own debug logs
         MH_CreateHook((LPVOID)0x005c0760, (LPVOID)&FUN_005c0760_detour, (LPVOID*)&FUN_005c0760_orig);
         MH_EnableHook((LPVOID)0x005c0760);
 
-        // Hook actor creation to get notifications about it
+        // Hook engine creation
+        MH_CreateHook((LPVOID)0x00484b30, (LPVOID)&CreateEngine_detour, (LPVOID*)&CreateEngine_orig);
+        MH_EnableHook((LPVOID)0x00484b30);
+
+        // Hook level creation
+        MH_CreateHook((LPVOID)0x004e0900, (LPVOID)&ConstructLevel_detour, (LPVOID*)&ConstructLevel_orig);
+        MH_EnableHook((LPVOID)0x004e0900);
+
+        // Hook level destruction
+        MH_CreateHook((LPVOID)0x004e0ba0, (LPVOID)&DestroyT4Level_detour, (LPVOID*)&DestroyT4Level_orig);
+        MH_EnableHook((LPVOID)0x004e0ba0);
+        MH_CreateHook((LPVOID)0x00513750, (LPVOID)&DestroyLevel_detour, (LPVOID*)&DestroyLevel_orig);
+        MH_EnableHook((LPVOID)0x00513750);
+
+        // Hook actor creation
         MH_CreateHook((LPVOID)0x00481510, (LPVOID)&CreateActor_detour, (LPVOID*)&CreateActor_orig);
         MH_EnableHook((LPVOID)0x00481510);
+
+        // Hook actor destruction
+        MH_CreateHook((LPVOID)0x00522910, (LPVOID)&DestroyActor_detour, (LPVOID*)&DestroyActor_orig);
+        MH_EnableHook((LPVOID)0x00522910);
 
         // Hook game updates
         MH_CreateHook((LPVOID)0x005e0360, (LPVOID)&AppUpdate_detour, (LPVOID*)&AppUpdate_orig);
@@ -110,7 +198,13 @@ namespace t4ext {
         MH_RemoveHook((LPVOID)*(void**)0x0062a224);
         MH_RemoveHook((LPVOID)0x005e0f20);
         MH_RemoveHook((LPVOID)0x005e0360);
+        MH_RemoveHook((LPVOID)0x00522910);
         MH_RemoveHook((LPVOID)0x00481510);
+        MH_RemoveHook((LPVOID)0x00513750);
+        MH_RemoveHook((LPVOID)0x004e0ba0);
+        MH_RemoveHook((LPVOID)0x004e0900);
+        MH_RemoveHook((LPVOID)0x00484b30);
         MH_RemoveHook((LPVOID)0x005c0760);
+        MH_RemoveHook((LPVOID)0x00401130);
     }
 };

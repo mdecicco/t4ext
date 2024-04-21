@@ -37,14 +37,20 @@ namespace t4ext {
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-        v8::Local<v8::Value> moduleId = args[0].As<v8::String>();
-        v8::Local<v8::Array> dependencies = args[1].As<v8::Array>();
-        v8::Local<v8::Value> initFuncOrExportObj = args[2];
-
-        v8::String::Utf8Value idStr(isolate, moduleId);
 
         TypeScriptAPI::ModuleInfo* mod = new TypeScriptAPI::ModuleInfo;
-        mod->id = *idStr;
+
+        u8 argIdx = 0;
+
+        if (args[0]->IsString()) {
+            v8::Local<v8::Value> moduleId = args[0].As<v8::String>();
+            v8::String::Utf8Value idStr(isolate, moduleId);
+            mod->id = *idStr;
+            argIdx++;
+        }
+
+        v8::Local<v8::Array> dependencies = args[argIdx++].As<v8::Array>();
+        v8::Local<v8::Value> initFuncOrExportObj = args[argIdx++];
         
         for (u32 i = 0;i < dependencies->Length();i++) {
             v8::String::Utf8Value depId(isolate, dependencies->Get(ctx, i).ToLocalChecked());
@@ -58,7 +64,36 @@ namespace t4ext {
         api->defineModule(mod);
     }
     void requireFunc(const v8::FunctionCallbackInfo<v8::Value>& args) {
-        v8Throw(args.GetIsolate(), "The 'require' function is not implemented. Bug stinkee2 about it");
+        TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
+        v8::Isolate* isolate = args.GetIsolate();
+        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+        if (args.Length() == 0 || !args[0]->IsString()) {
+            v8Throw(isolate, "Expected first parameter of 'require' to be a string, the module to require");
+            return;
+        }
+
+        v8::Local<v8::Value> moduleId = args[0].As<v8::String>();
+        v8::String::Utf8Value idStr(isolate, moduleId);
+
+        bool doReload = false;
+        if (args.Length() > 1 && args[1]->IsBoolean()) {
+            doReload = args[1].As<v8::Boolean>()->Value();
+        }
+        
+        TypeScriptAPI::ModuleInfo* mod = api->getModule(*idStr, doReload);
+        if (!mod) {
+            v8Throw(isolate, "Failed to acquire module '%s', see logs for more info", *idStr);
+            return;
+        }
+
+        if (!mod->exports.IsEmpty()) {
+            args.GetReturnValue().Set(mod->exports.Get(isolate));
+            return;
+        }
+
+        // https://github.com/amdjs/amdjs-api/wiki/require#requirestring-
+        // That document specifically says I shouldn't do this, but what the heck, let's do it anyway
+        args.GetReturnValue().Set(api->loadModule(mod));
     }
     void eventPoll(const v8::FunctionCallbackInfo<v8::Value>& args) {
         bool doContinue = true;

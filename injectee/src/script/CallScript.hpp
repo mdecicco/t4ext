@@ -33,7 +33,7 @@ namespace t4ext {
     }
 
     template <typename Ret, typename ...Args>
-    Ret CallCallback(TypeScriptCallback* cb, Args... args) {
+    Ret CallCallback(TypeScriptCallbackData* cb, Args... args) {
         constexpr u32 argc = std::tuple_size_v<std::tuple<Args...>>;
         v8::Local<v8::Value> callArgs[std::tuple_size_v<std::tuple<Args...>> + 1];
 

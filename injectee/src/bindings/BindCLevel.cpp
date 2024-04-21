@@ -7,7 +7,11 @@
 
 namespace t4ext {
     void BindCLevel(IScriptAPI* api, DataType* tp) {
-        tp->bind("atrPath", &CLevel::atrPath)->flags.is_readonly;
+        DataType* li = api->bind<UnkClass5>("UnkLevelInfo");
+        li->bind("actorPath", &UnkClass5::atrPath)->setFlags(DataTypeField::Flags::IsReadOnly);
+        li->bind("gravity", &UnkClass5::gravity);
+
         tp->bind("spawnActor", &CLevel::spawnActorAtPosition);
+        tp->bind("info", &CLevel::info)->setFlags(DataTypeField::Flags::IsReadOnly);
     }
 };

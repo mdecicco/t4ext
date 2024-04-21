@@ -1,42 +1,43 @@
-#include <events/Update.h>
+#include <events/LevelCreate.h>
 #include <script/IScriptAPI.hpp>
+#include <core/CLevel.h>
 
 #include <Client.h>
 #include <utils/Allocator.hpp>
 #include <utils/Singleton.hpp>
 
 namespace t4ext {
-    UpdateListener::UpdateListener(Callback<void>& callback) {
+    LevelCreateListener::LevelCreateListener(Callback<void, CLevel*>& callback) {
         m_id = 0;
         m_last = m_next = nullptr;
         m_callback = &callback;
     }
 
-    UpdateListener::~UpdateListener() {
+    LevelCreateListener::~LevelCreateListener() {
         delete m_callback;
     }
 
-    void UpdateListener::execute() {
-        m_callback->call();
+    void LevelCreateListener::execute(CLevel* level) {
+        m_callback->call(level);
     }
 
-    UpdateEventType::UpdateEventType() {
+    LevelCreateEventType::LevelCreateEventType() {
         m_nextListenerId = 1;
         m_listeners = m_lastListener = nullptr;
     }
 
-    UpdateEventType::~UpdateEventType() {
-        UpdateListener* n = m_listeners;
+    LevelCreateEventType::~LevelCreateEventType() {
+        LevelCreateListener* n = m_listeners;
         while (n) {
-            UpdateListener* next = n->m_next;
+            LevelCreateListener* next = n->m_next;
             delete n;
             n = next;
         }
         m_listeners = m_lastListener = nullptr;
     }
     
-    u32 UpdateEventType::createListener(Callback<void>& callback) {
-        UpdateListener* listener = new UpdateListener(callback);
+    u32 LevelCreateEventType::createListener(Callback<void, CLevel*>& callback) {
+        LevelCreateListener* listener = new LevelCreateListener(callback);
         listener->m_id = m_nextListenerId;
 
         if (m_lastListener) {
@@ -51,13 +52,13 @@ namespace t4ext {
         return m_nextListenerId++;
     }
 
-    void UpdateEventType::removeListener(u32 id) {
+    void LevelCreateEventType::removeListener(u32 id) {
         auto it = m_listenerMap.find(id);
         if (it == m_listenerMap.end()) return;
 
         m_listenerMap.erase(it);
 
-        UpdateListener* n = it->second;
+        LevelCreateListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_listeners == n) m_listeners = nullptr;
@@ -66,36 +67,37 @@ namespace t4ext {
         delete n;
     }
 
-    void UpdateEventType::notifyListeners() {
-        UpdateListener* n = m_listeners;
+    void LevelCreateEventType::notifyListeners(CLevel* level) {
+        LevelCreateListener* n = m_listeners;
         while (n) {
-            n->execute();
+            n->execute(level);
             n = n->m_next;
         }
     }
 
-    bool UpdateEventType::canProduceEvents() {
+    bool LevelCreateEventType::canProduceEvents() {
         // If there are no active timeouts, there is no chance of any
         // timeout events occurring
         return m_listeners != nullptr;
     }
     
-    UpdateEvent* UpdateEventType::createEvent() {
-        return new UpdateEvent(this);
+    LevelCreateEvent* LevelCreateEventType::createEvent(CLevel* level) {
+        return new LevelCreateEvent(this, level);
     }
     
-    void UpdateEventType::destroyEvent(UpdateEvent* event) {
+    void LevelCreateEventType::destroyEvent(LevelCreateEvent* event) {
         delete event;
     }
     
-    UpdateEvent::UpdateEvent(UpdateEventType* tp) : IEvent(tp) {
+    LevelCreateEvent::LevelCreateEvent(LevelCreateEventType* tp, CLevel* level) : IEvent(tp) {
+        m_level = level;
     }
 
-    UpdateEvent::~UpdateEvent() {
+    LevelCreateEvent::~LevelCreateEvent() {
     }
 
-    void UpdateEvent::process(IScriptAPI* api) {
-        ((UpdateEventType*)m_type)->notifyListeners();
-        ((UpdateEventType*)m_type)->destroyEvent(this);
+    void LevelCreateEvent::process(IScriptAPI* api) {
+        ((LevelCreateEventType*)m_type)->notifyListeners(m_level);
+        ((LevelCreateEventType*)m_type)->destroyEvent(this);
     }
 };

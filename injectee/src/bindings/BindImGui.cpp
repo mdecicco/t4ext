@@ -12,7 +12,7 @@ struct ImGuiContext {};
 
 namespace t4ext {
     void imguiSizeCallback(ImGuiSizeCallbackData* data) {
-        ICallback<void, const ImVec2&, const ImVec2&>* cb = (ICallback<void, const ImVec2&, const ImVec2&>*)data->UserData;
+        Callback<void, const ImVec2&, const ImVec2&>* cb = (Callback<void, const ImVec2&, const ImVec2&>*)data->UserData;
         cb->call(data->CurrentSize, data->DesiredSize);
     }
 
@@ -783,10 +783,10 @@ namespace t4ext {
         api->bind("SetScrollY", &ImGui::SetScrollY)->setArgNames({ "scrollY" });
         api->bind("GetScrollMaxX", &ImGui::GetScrollMaxX);
         api->bind("GetScrollMaxY", &ImGui::GetScrollMaxY);
-        api->bind("SetScrollHereX", +[]() { ImGui::SetScrollHereX(); });
-        api->bind("SetScrollHereY", +[]() { ImGui::SetScrollHereY(); });
-        api->bind("SetScrollFromPosX", +[](f32 localX) { ImGui::SetScrollFromPosX(localX); })->setArgNames({ "localX" });
-        api->bind("SetScrollFromPosY", +[](f32 localY) { ImGui::SetScrollFromPosY(localY); })->setArgNames({ "localY" });
+        api->bind("SetScrollHereX", &ImGui::SetScrollHereX)->setArgNames({ "centerRatioX" });
+        api->bind("SetScrollHereY", &ImGui::SetScrollHereY)->setArgNames({ "centerRatioY" });
+        api->bind("SetScrollFromPosX", &ImGui::SetScrollFromPosX)->setArgNames({ "localX", "centerRatioX" });
+        api->bind("SetScrollFromPosY", &ImGui::SetScrollFromPosY)->setArgNames({ "localY", "centerRatioY" });
         api->bind("PushFont", &ImGui::PushFont)->setArgNames({ "font" });
         api->bind("PopFont", &ImGui::PopFont);
         api->bind("PushStyleColor", +[](ImGuiCol_ idx, const ImVec4& col) { ImGui::PushStyleColor(idx, col); })->setArgNames({ "index", "color" });
@@ -858,7 +858,7 @@ namespace t4ext {
         // api->bind("EndCombo", &ImGui::EndCombo);
         // api->bind("Combo", &ImGui::Combo);
 
-        api->bind("DragFloat", +[](const char* label, f32 value, ICallback<void, f32>* onChange) {
+        api->bind("DragFloat", +[](const char* label, f32 value, Callback<void, f32>* onChange) {
             bool didChange = ImGui::DragFloat(label, &value);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -868,7 +868,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragFloat2", +[](const char* label, utils::vec2f& value, ICallback<void, const utils::vec2f&>* onChange) {
+        api->bind("DragFloat2", +[](const char* label, utils::vec2f& value, Callback<void, const utils::vec2f&>* onChange) {
             bool didChange = ImGui::DragFloat2(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -878,7 +878,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragFloat3", +[](const char* label, utils::vec3f& value, ICallback<void, const utils::vec3f&>* onChange) {
+        api->bind("DragFloat3", +[](const char* label, utils::vec3f& value, Callback<void, const utils::vec3f&>* onChange) {
             bool didChange = ImGui::DragFloat3(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -888,7 +888,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragFloat4", +[](const char* label, utils::vec4f& value, ICallback<void, const utils::vec4f&>* onChange) {
+        api->bind("DragFloat4", +[](const char* label, utils::vec4f& value, Callback<void, const utils::vec4f&>* onChange) {
             bool didChange = ImGui::DragFloat4(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -898,7 +898,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragInt", +[](const char* label, i32 value, ICallback<void, i32>* onChange) {
+        api->bind("DragInt", +[](const char* label, i32 value, Callback<void, i32>* onChange) {
             bool didChange = ImGui::DragInt(label, &value);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -908,7 +908,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragInt2", +[](const char* label, utils::vec2i& value, ICallback<void, utils::vec2i&>* onChange) {
+        api->bind("DragInt2", +[](const char* label, utils::vec2i& value, Callback<void, utils::vec2i&>* onChange) {
             bool didChange = ImGui::DragInt2(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -918,7 +918,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragInt3", +[](const char* label, utils::vec3i& value, ICallback<void, utils::vec3i&>* onChange) {
+        api->bind("DragInt3", +[](const char* label, utils::vec3i& value, Callback<void, utils::vec3i&>* onChange) {
             bool didChange = ImGui::DragInt3(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -928,7 +928,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("DragInt4", +[](const char* label, utils::vec4i& value, ICallback<void, utils::vec4i&>* onChange) {
+        api->bind("DragInt4", +[](const char* label, utils::vec4i& value, Callback<void, utils::vec4i&>* onChange) {
             bool didChange = ImGui::DragInt4(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -938,7 +938,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("SliderFloat", +[](const char* label, f32 value, f32 min, f32 max, ICallback<void, f32>* onChange) {
+        api->bind("SliderFloat", +[](const char* label, f32 value, f32 min, f32 max, Callback<void, f32>* onChange) {
             bool didChange = ImGui::SliderFloat(label, &value, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -948,7 +948,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderFloat2", +[](const char* label, utils::vec2f& value, f32 min, f32 max, ICallback<void, utils::vec2f&>* onChange) {
+        api->bind("SliderFloat2", +[](const char* label, utils::vec2f& value, f32 min, f32 max, Callback<void, utils::vec2f&>* onChange) {
             bool didChange = ImGui::SliderFloat2(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -958,7 +958,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderFloat3", +[](const char* label, utils::vec3f& value, f32 min, f32 max, ICallback<void, utils::vec3f&>* onChange) {
+        api->bind("SliderFloat3", +[](const char* label, utils::vec3f& value, f32 min, f32 max, Callback<void, utils::vec3f&>* onChange) {
             bool didChange = ImGui::SliderFloat3(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -968,7 +968,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderFloat4", +[](const char* label, utils::vec4f& value, f32 min, f32 max, ICallback<void, utils::vec4f&>* onChange) {
+        api->bind("SliderFloat4", +[](const char* label, utils::vec4f& value, f32 min, f32 max, Callback<void, utils::vec4f&>* onChange) {
             bool didChange = ImGui::SliderFloat4(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -978,7 +978,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderAngle", +[](const char* label, f32 value, f32 min, f32 max, ICallback<void, f32>* onChange) {
+        api->bind("SliderAngle", +[](const char* label, f32 value, f32 min, f32 max, Callback<void, f32>* onChange) {
             bool didChange = ImGui::SliderAngle(label, &value, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -988,7 +988,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderInt", +[](const char* label, i32 value, i32 min, i32 max, ICallback<void, f32>* onChange) {
+        api->bind("SliderInt", +[](const char* label, i32 value, i32 min, i32 max, Callback<void, f32>* onChange) {
             bool didChange = ImGui::SliderInt(label, &value, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -998,7 +998,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderInt2", +[](const char* label, utils::vec2i& value, i32 min, i32 max, ICallback<void, utils::vec2i&>* onChange) {
+        api->bind("SliderInt2", +[](const char* label, utils::vec2i& value, i32 min, i32 max, Callback<void, utils::vec2i&>* onChange) {
             bool didChange = ImGui::SliderInt2(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1008,7 +1008,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderInt3", +[](const char* label, utils::vec3i& value, i32 min, i32 max, ICallback<void, utils::vec3i&>* onChange) {
+        api->bind("SliderInt3", +[](const char* label, utils::vec3i& value, i32 min, i32 max, Callback<void, utils::vec3i&>* onChange) {
             bool didChange = ImGui::SliderInt3(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1018,7 +1018,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("SliderInt4", +[](const char* label, utils::vec4i& value, i32 min, i32 max, ICallback<void, utils::vec4i&>* onChange) {
+        api->bind("SliderInt4", +[](const char* label, utils::vec4i& value, i32 min, i32 max, Callback<void, utils::vec4i&>* onChange) {
             bool didChange = ImGui::SliderInt4(label, &value.x, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1028,7 +1028,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "min", "max", "onChange" });
-        api->bind("VSliderFloat", +[](const char* label, const ImVec2& size, f32 value, f32 min, f32 max, ICallback<void, f32>* onChange) {
+        api->bind("VSliderFloat", +[](const char* label, const ImVec2& size, f32 value, f32 min, f32 max, Callback<void, f32>* onChange) {
             bool didChange = ImGui::VSliderFloat(label, size, &value, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1038,7 +1038,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "size", "value", "min", "max", "onChange" });
-        api->bind("VSliderInt", +[](const char* label, const ImVec2& size, i32 value, i32 min, i32 max, ICallback<void, i32>* onChange) {
+        api->bind("VSliderInt", +[](const char* label, const ImVec2& size, i32 value, i32 min, i32 max, Callback<void, i32>* onChange) {
             bool didChange = ImGui::VSliderInt(label, size, &value, min, max);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1048,7 +1048,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "size", "value", "min", "max", "onChange" });
-        api->bind("InputText", +[](const char* label, const char* value, ICallback<void, const char*>* onChange) {
+        api->bind("InputText", +[](const char* label, const char* value, Callback<void, const char*>* onChange) {
             char buf[512] = { 0 };
             strncpy(buf, value, 512);
             bool didChange = ImGui::InputText(label, buf, 512);
@@ -1060,7 +1060,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputTextMultiline", +[](const char* label, const char* value, const ImVec2& size, ICallback<void, const char*>* onChange) {
+        api->bind("InputTextMultiline", +[](const char* label, const char* value, const ImVec2& size, Callback<void, const char*>* onChange) {
             char buf[1024] = { 0 };
             strncpy(buf, value, 1024);
             bool didChange = ImGui::InputTextMultiline(label, buf, 1024, size);
@@ -1072,7 +1072,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "size", "onChange" });
-        api->bind("InputTextWithHint", +[](const char* label, const char* value, const char* hint, ICallback<void, const char*>* onChange) {
+        api->bind("InputTextWithHint", +[](const char* label, const char* value, const char* hint, Callback<void, const char*>* onChange) {
             char buf[512] = { 0 };
             strncpy(buf, value, 512);
             bool didChange = ImGui::InputTextWithHint(label, hint, buf, 512);
@@ -1084,7 +1084,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputFloat", +[](const char* label, f32 value, ICallback<void, f32>* onChange) {
+        api->bind("InputFloat", +[](const char* label, f32 value, Callback<void, f32>* onChange) {
             bool didChange = ImGui::InputFloat(label, &value);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1094,7 +1094,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputFloat2", +[](const char* label, utils::vec2f& value, ICallback<void, const utils::vec2f&>* onChange) {
+        api->bind("InputFloat2", +[](const char* label, utils::vec2f& value, Callback<void, const utils::vec2f&>* onChange) {
             bool didChange = ImGui::InputFloat2(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1104,7 +1104,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputFloat3", +[](const char* label, utils::vec3f& value, ICallback<void, const utils::vec3f&>* onChange) {
+        api->bind("InputFloat3", +[](const char* label, utils::vec3f& value, Callback<void, const utils::vec3f&>* onChange) {
             bool didChange = ImGui::InputFloat3(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1114,7 +1114,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputFloat4", +[](const char* label, utils::vec4f& value, ICallback<void, const utils::vec4f&>* onChange) {
+        api->bind("InputFloat4", +[](const char* label, utils::vec4f& value, Callback<void, const utils::vec4f&>* onChange) {
             bool didChange = ImGui::InputFloat4(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1124,7 +1124,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputInt", +[](const char* label, i32 value, ICallback<void, i32>* onChange) {
+        api->bind("InputInt", +[](const char* label, i32 value, Callback<void, i32>* onChange) {
             bool didChange = ImGui::InputInt(label, &value);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1134,7 +1134,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputInt2", +[](const char* label, utils::vec2i& value, ICallback<void, utils::vec2i&>* onChange) {
+        api->bind("InputInt2", +[](const char* label, utils::vec2i& value, Callback<void, utils::vec2i&>* onChange) {
             bool didChange = ImGui::InputInt2(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1144,7 +1144,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputInt3", +[](const char* label, utils::vec3i& value, ICallback<void, utils::vec3i&>* onChange) {
+        api->bind("InputInt3", +[](const char* label, utils::vec3i& value, Callback<void, utils::vec3i&>* onChange) {
             bool didChange = ImGui::InputInt3(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1154,7 +1154,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("InputInt4", +[](const char* label, utils::vec4i& value, ICallback<void, utils::vec4i&>* onChange) {
+        api->bind("InputInt4", +[](const char* label, utils::vec4i& value, Callback<void, utils::vec4i&>* onChange) {
             bool didChange = ImGui::InputInt4(label, &value.x);
             if (onChange) {
                 if (didChange) onChange->call(value);
@@ -1164,7 +1164,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("ColorEdit3", +[](const char* label, utils::vec3f& color, ICallback<void, utils::vec3f&>* onChange) {
+        api->bind("ColorEdit3", +[](const char* label, utils::vec3f& color, Callback<void, utils::vec3f&>* onChange) {
             bool didChange = ImGui::ColorEdit3(label, &color.x);
             if (onChange) {
                 if (didChange) onChange->call(color);
@@ -1174,7 +1174,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("ColorEdit4", +[](const char* label, utils::vec4f& color, ICallback<void, utils::vec4f&>* onChange) {
+        api->bind("ColorEdit4", +[](const char* label, utils::vec4f& color, Callback<void, utils::vec4f&>* onChange) {
             bool didChange = ImGui::ColorEdit4(label, &color.x);
             if (onChange) {
                 if (didChange) onChange->call(color);
@@ -1184,7 +1184,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("ColorPicker3", +[](const char* label, utils::vec3f& color, ICallback<void, utils::vec3f&>* onChange) {
+        api->bind("ColorPicker3", +[](const char* label, utils::vec3f& color, Callback<void, utils::vec3f&>* onChange) {
             bool didChange = ImGui::ColorPicker3(label, &color.x);
             if (onChange) {
                 if (didChange) onChange->call(color);
@@ -1194,7 +1194,7 @@ namespace t4ext {
             }
             return didChange;
         })->setArgNames({ "label", "value", "onChange" });
-        api->bind("ColorPicker4", +[](const char* label, utils::vec4f& color, ICallback<void, utils::vec4f&>* onChange) {
+        api->bind("ColorPicker4", +[](const char* label, utils::vec4f& color, Callback<void, utils::vec4f&>* onChange) {
             bool didChange = ImGui::ColorPicker4(label, &color.x);
             if (onChange) {
                 if (didChange) onChange->call(color);
@@ -1215,7 +1215,7 @@ namespace t4ext {
         api->bind("GetTreeNodeToLabelSpacing", &ImGui::GetTreeNodeToLabelSpacing);
         api->bind("CollapsingHeader", +[](const char* label, ImGuiTreeNodeFlags_ flags) { return ImGui::CollapsingHeader(label, flags); })->setArgNames({ "label", "flags" });
         api->bind("SetNextItemOpen", +[](bool isOpen) { return ImGui::SetNextItemOpen(isOpen); })->setArgNames({ "isOpen" });
-        api->bind("Selectable", +[](const char* label, bool selected) { return ImGui::Selectable(label, &selected); })->setArgNames({ "label", "isSelected" });
+        api->bind("Selectable", +[](const char* label, bool selected) { return ImGui::Selectable(label, selected); })->setArgNames({ "label", "isSelected" });
 
         // todo: array arguments
         // api->bind("BeginListBox", &ImGui::BeginListBox);
@@ -1283,13 +1283,6 @@ namespace t4ext {
         // api->bind("EndTabItem", &ImGui::EndTabItem);
         // api->bind("TabItemButton", &ImGui::TabItemButton);
         // api->bind("SetTabItemClosed", &ImGui::SetTabItemClosed);
-        // api->bind("LogToTTY", &ImGui::LogToTTY);
-        // api->bind("LogToFile", &ImGui::LogToFile);
-        // api->bind("LogToClipboard", &ImGui::LogToClipboard);
-        // api->bind("LogFinish", &ImGui::LogFinish);
-        // api->bind("LogButtons", &ImGui::LogButtons);
-        // api->bind("LogText", &ImGui::LogText);
-        // api->bind("LogTextV", &ImGui::LogTextV);
         // api->bind("BeginDragDropSource", &ImGui::BeginDragDropSource);
         // api->bind("SetDragDropPayload", &ImGui::SetDragDropPayload);
         // api->bind("EndDragDropSource", &ImGui::EndDragDropSource);
@@ -1297,31 +1290,31 @@ namespace t4ext {
         // api->bind("AcceptDragDropPayload", &ImGui::AcceptDragDropPayload);
         // api->bind("EndDragDropTarget", &ImGui::EndDragDropTarget);
         // api->bind("GetDragDropPayload", &ImGui::GetDragDropPayload);
-        // api->bind("BeginDisabled", &ImGui::BeginDisabled);
-        // api->bind("EndDisabled", &ImGui::EndDisabled);
-        // api->bind("PushClipRect", &ImGui::PushClipRect);
-        // api->bind("PopClipRect", &ImGui::PopClipRect);
+        api->bind("BeginDisabled", &ImGui::BeginDisabled)->setArgNames({ "isDisabled" });
+        api->bind("EndDisabled", &ImGui::EndDisabled);
+        api->bind("PushClipRect", &ImGui::PushClipRect)->setArgNames({ "min", "max", "doIntersectWithCurrent" });
+        api->bind("PopClipRect", &ImGui::PopClipRect);
         // api->bind("SetItemDefaultFocus", &ImGui::SetItemDefaultFocus);
         // api->bind("SetKeyboardFocusHere", &ImGui::SetKeyboardFocusHere);
         // api->bind("SetNextItemAllowOverlap", &ImGui::SetNextItemAllowOverlap);
         // api->bind("IsItemHovered", &ImGui::IsItemHovered);
-        // api->bind("IsItemActive", &ImGui::IsItemActive);
-        // api->bind("IsItemFocused", &ImGui::IsItemFocused);
+        api->bind("IsItemActive", &ImGui::IsItemActive);
+        api->bind("IsItemFocused", &ImGui::IsItemFocused);
         // api->bind("IsItemClicked", &ImGui::IsItemClicked);
-        // api->bind("IsItemVisible", &ImGui::IsItemVisible);
-        // api->bind("IsItemEdited", &ImGui::IsItemEdited);
-        // api->bind("IsItemActivated", &ImGui::IsItemActivated);
-        // api->bind("IsItemDeactivated", &ImGui::IsItemDeactivated);
-        // api->bind("IsItemDeactivatedAfterEdit", &ImGui::IsItemDeactivatedAfterEdit);
-        // api->bind("IsItemToggledOpen", &ImGui::IsItemToggledOpen);
-        // api->bind("IsAnyItemHovered", &ImGui::IsAnyItemHovered);
-        // api->bind("IsAnyItemActive", &ImGui::IsAnyItemActive);
-        // api->bind("IsAnyItemFocused", &ImGui::IsAnyItemFocused);
-        // api->bind("GetItemID", &ImGui::GetItemID);
-        // api->bind("GetItemRectMin", &ImGui::GetItemRectMin);
-        // api->bind("GetItemRectMax", &ImGui::GetItemRectMax);
-        // api->bind("GetItemRectSize", &ImGui::GetItemRectSize);
-        // api->bind(" GetMainViewport", &ImGui:: GetMainViewport);
+        api->bind("IsItemVisible", &ImGui::IsItemVisible);
+        api->bind("IsItemEdited", &ImGui::IsItemEdited);
+        api->bind("IsItemActivated", &ImGui::IsItemActivated);
+        api->bind("IsItemDeactivated", &ImGui::IsItemDeactivated);
+        api->bind("IsItemDeactivatedAfterEdit", &ImGui::IsItemDeactivatedAfterEdit);
+        api->bind("IsItemToggledOpen", &ImGui::IsItemToggledOpen);
+        api->bind("IsAnyItemHovered", &ImGui::IsAnyItemHovered);
+        api->bind("IsAnyItemActive", &ImGui::IsAnyItemActive);
+        api->bind("IsAnyItemFocused", &ImGui::IsAnyItemFocused);
+        api->bind("GetItemID", &ImGui::GetItemID);
+        api->bind("GetItemRectMin", &ImGui::GetItemRectMin);
+        api->bind("GetItemRectMax", &ImGui::GetItemRectMax);
+        api->bind("GetItemRectSize", &ImGui::GetItemRectSize);
+        api->bind("GetMainViewport", &ImGui:: GetMainViewport);
         // api->bind("GetBackgroundDrawList", &ImGui::GetBackgroundDrawList);
         // api->bind("GetForegroundDrawList", &ImGui::GetForegroundDrawList);
         // api->bind("IsRectVisible", &ImGui::IsRectVisible);
@@ -1337,22 +1330,22 @@ namespace t4ext {
         // api->bind("ColorConvertFloat4ToU32", &ImGui::ColorConvertFloat4ToU32);
         // api->bind("ColorConvertRGBtoHSV", &ImGui::ColorConvertRGBtoHSV);
         // api->bind("ColorConvertHSVtoRGB", &ImGui::ColorConvertHSVtoRGB);
-        // api->bind("IsKeyDown", &ImGui::IsKeyDown);
-        // api->bind("IsKeyPressed", &ImGui::IsKeyPressed);
-        // api->bind("IsKeyReleased", &ImGui::IsKeyReleased);
-        // api->bind("IsKeyChordPressed", &ImGui::IsKeyChordPressed);
-        // api->bind("GetKeyPressedAmount", &ImGui::GetKeyPressedAmount);
-        // api->bind("GetKeyName", &ImGui::GetKeyName);
+        api->bind("IsKeyDown", &ImGui::IsKeyDown);
+        api->bind("IsKeyPressed", &ImGui::IsKeyPressed);
+        api->bind("IsKeyReleased", &ImGui::IsKeyReleased);
+        api->bind("IsKeyChordPressed", &ImGui::IsKeyChordPressed);
+        api->bind("GetKeyPressedAmount", &ImGui::GetKeyPressedAmount);
+        api->bind("GetKeyName", &ImGui::GetKeyName);
         // api->bind("SetNextFrameWantCaptureKeyboard", &ImGui::SetNextFrameWantCaptureKeyboard);
         // api->bind("IsMouseDown", &ImGui::IsMouseDown);
         // api->bind("IsMouseClicked", &ImGui::IsMouseClicked);
         // api->bind("IsMouseReleased", &ImGui::IsMouseReleased);
         // api->bind("IsMouseDoubleClicked", &ImGui::IsMouseDoubleClicked);
         // api->bind("GetMouseClickedCount", &ImGui::GetMouseClickedCount);
-        // api->bind("IsMouseHoveringRect", &ImGui::IsMouseHoveringRect);
+        api->bind("IsMouseHoveringRect", &ImGui::IsMouseHoveringRect)->setArgNames({ "min", "max", "clip" });
         // api->bind("IsMousePosValid", &ImGui::IsMousePosValid);
-        // api->bind("IsAnyMouseDown", &ImGui::IsAnyMouseDown);
-        // api->bind("GetMousePos", &ImGui::GetMousePos);
+        api->bind("IsAnyMouseDown", &ImGui::IsAnyMouseDown);
+        api->bind("GetMousePos", &ImGui::GetMousePos);
         // api->bind("GetMousePosOnOpeningCurrentPopup", &ImGui::GetMousePosOnOpeningCurrentPopup);
         // api->bind("IsMouseDragging", &ImGui::IsMouseDragging);
         // api->bind("GetMouseDragDelta", &ImGui::GetMouseDragDelta);
@@ -1360,8 +1353,8 @@ namespace t4ext {
         // api->bind("GetMouseCursor", &ImGui::GetMouseCursor);
         // api->bind("SetMouseCursor", &ImGui::SetMouseCursor);
         // api->bind("SetNextFrameWantCaptureMouse", &ImGui::SetNextFrameWantCaptureMouse);
-        // api->bind("GetClipboardText", &ImGui::GetClipboardText);
-        // api->bind("SetClipboardText", &ImGui::SetClipboardText);
+        api->bind("GetClipboardText", &ImGui::GetClipboardText);
+        api->bind("SetClipboardText", &ImGui::SetClipboardText);
         // api->bind("LoadIniSettingsFromDisk", &ImGui::LoadIniSettingsFromDisk);
         // api->bind("LoadIniSettingsFromMemory", &ImGui::LoadIniSettingsFromMemory);
         // api->bind("SaveIniSettingsToDisk", &ImGui::SaveIniSettingsToDisk);
@@ -1370,5 +1363,84 @@ namespace t4ext {
         // api->bind("DebugFlashStyleColor", &ImGui::DebugFlashStyleColor);
         // api->bind("DebugStartItemPicker", &ImGui::DebugStartItemPicker);
         // api->bind("DebugCheckVersionAndDataLayout", &ImGui::DebugCheckVersionAndDataLayout);
+
+        api->bind("BeginGlobalDockSpace", +[](bool withMenu) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->WorkPos);
+            ImGui::SetNextWindowSize(viewport->WorkSize);
+            ImGui::SetNextWindowViewport(viewport->ID);
+
+            ImGuiWindowFlags host_window_flags = 0;
+            host_window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
+            host_window_flags |= ImGuiWindowFlags_NoMove;
+            host_window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+            host_window_flags |= ImGuiWindowFlags_NoBackground;
+            if (withMenu) host_window_flags |= ImGuiWindowFlags_MenuBar;
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::Begin("##global", nullptr, host_window_flags);
+            ImGui::PopStyleVar(3);
+            ImGui::DockSpace(ImGui::GetID("DockSpace"), ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+        })->setArgNames({ "withMenu" });
+        api->bind("EndGlobalDockSpace", &ImGui::End);
+
+        // (const ImVec2& p1, const ImVec2& p2, ImU32 col, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddLine", &ImDrawList::AddLine)->setArgNames({ "p1", "p2", "color", "thickness" });
+
+        // (const ImVec2& p_min, const ImVec2& p_max, ImU32 col, float rounding = 0.0f, ImDrawFlags flags = 0, float thickness = 1.0f);   // a: upper-left, b: lower-right (== upper-left + size)
+        tp_ImDrawList->bind("AddRect", &ImDrawList::AddRect)->setArgNames({ "min", "max", "color", "rounding", "flags", "thickness" });
+
+        // (const ImVec2& p_min, const ImVec2& p_max, ImU32 col, float rounding = 0.0f, ImDrawFlags flags = 0);                     // a: upper-left, b: lower-right (== upper-left + size)
+        tp_ImDrawList->bind("AddRectFilled", &ImDrawList::AddRectFilled)->setArgNames({ "min", "max", "color", "rounding", "flags" });
+
+        // (const ImVec2& p_min, const ImVec2& p_max, ImU32 col_upr_left, ImU32 col_upr_right, ImU32 col_bot_right, ImU32 col_bot_left);
+        tp_ImDrawList->bind("AddRectFilledMultiColor", &ImDrawList::AddRectFilledMultiColor)->setArgNames({ "min", "max", "colorUpperLeft", "colorUpperRight", "colorBottomRight", "colorBottomLeft" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, const ImVec2& p4, ImU32 col, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddQuad", &ImDrawList::AddQuad)->setArgNames({ "p1", "p2", "p3", "p4", "color", "thickness" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, const ImVec2& p4, ImU32 col);
+        tp_ImDrawList->bind("AddQuadFilled", &ImDrawList::AddQuadFilled)->setArgNames({ "p1", "p2", "p3", "p4", "color" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, ImU32 col, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddTriangle", &ImDrawList::AddTriangle)->setArgNames({ "p1", "p2", "p3", "color", "thickness" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, ImU32 col);
+        tp_ImDrawList->bind("AddTriangleFilled", &ImDrawList::AddTriangleFilled)->setArgNames({ "p1", "p2", "p3", "color" });
+
+        // (const ImVec2& center, float radius, ImU32 col, int num_segments = 0, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddCircle", &ImDrawList::AddCircle)->setArgNames({ "center", "radius", "color", "numSegments", "thickness" });
+
+        // (const ImVec2& center, float radius, ImU32 col, int num_segments = 0);
+        tp_ImDrawList->bind("AddCircleFilled", &ImDrawList::AddCircleFilled)->setArgNames({ "center", "radius", "color", "numSegments" });
+
+        // (const ImVec2& center, float radius, ImU32 col, int num_segments, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddNgon", &ImDrawList::AddNgon)->setArgNames({ "center", "radius", "color", "numSegments", "thickness" });
+
+        // (const ImVec2& center, float radius, ImU32 col, int num_segments);
+        tp_ImDrawList->bind("AddNgonFilled", &ImDrawList::AddNgonFilled)->setArgNames({ "center", "radius", "color", "numSegments" });
+
+        // (const ImVec2& center, const ImVec2& radius, ImU32 col, float rot = 0.0f, int num_segments = 0, float thickness = 1.0f);
+        tp_ImDrawList->bind("AddEllipse", &ImDrawList::AddEllipse)->setArgNames({ "center", "radius", "color", "rotation", "numSegments", "thickness" });
+
+        // (const ImVec2& center, const ImVec2& radius, ImU32 col, float rot = 0.0f, int num_segments = 0);
+        tp_ImDrawList->bind("AddEllipseFilled", &ImDrawList::AddEllipseFilled)->setArgNames({ "center", "radius", "color", "rotation", "numSegments" });
+
+        // (const ImVec2& pos, ImU32 col, const char* text_begin, const char* text_end = NULL);
+        struct _dummy {
+            void AddText(const ImVec2& pos, ImU32 col, const char* text_begin) {
+                ((ImDrawList*)this)->AddText(pos, col, text_begin);
+            }
+        };
+        
+        tp_ImDrawList->bind("AddText", &_dummy::AddText)->setArgNames({ "position", "color", "text" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, const ImVec2& p4, ImU32 col, float thickness, int num_segments = 0); // Cubic Bezier (4 control points)
+        tp_ImDrawList->bind("AddBezierCubic", &ImDrawList::AddBezierCubic)->setArgNames({ "p1", "p2", "p3", "p4", "color", "thickness", "numSegments" });
+
+        // (const ImVec2& p1, const ImVec2& p2, const ImVec2& p3, ImU32 col, float thickness, int num_segments = 0);
+        tp_ImDrawList->bind("AddBezierQuadratic", &ImDrawList::AddBezierQuadratic)->setArgNames({ "p1", "p2", "p3", "color", "thickness", "numSegments" });
     }
 };

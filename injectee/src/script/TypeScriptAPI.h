@@ -9,10 +9,10 @@
 namespace t4ext {
     void v8Throw(v8::Isolate* isolate, const char* fmt, ...);
 
-    class TypeScriptCallback : public ICallback<void> {
+    class TypeScriptCallbackData : public ICallbackData {
         public:
-            TypeScriptCallback(const v8::Local<v8::Function>& func);
-            virtual ~TypeScriptCallback();
+            TypeScriptCallbackData(const v8::Local<v8::Function>& func);
+            virtual ~TypeScriptCallbackData();
 
             v8::Local<v8::Function> get(v8::Isolate* isolate);
 
@@ -32,7 +32,9 @@ namespace t4ext {
             TypeScriptAPI();
             virtual ~TypeScriptAPI();
 
-            ModuleInfo* getModule(const utils::String& moduleId);
+            ModuleInfo* getModule(const utils::String& moduleId, bool doReload = false);
+            v8::Local<v8::Object> loadModule(ModuleInfo* module);
+            void unloadModule(ModuleInfo* module);
             void defineModule(ModuleInfo* module);
             v8::Isolate* getIsolate();
             v8::Local<v8::Context>& getContext();
@@ -41,13 +43,13 @@ namespace t4ext {
             virtual bool commitBindings();
             virtual bool shutdown();
             virtual bool executeEntry();
+            virtual void scriptException(const utils::String& msg);
 
             void logException(const v8::TryCatch& exception);
             bool isReady();
         
         protected:
             bool execute(const v8::Local<v8::String>& source);
-            v8::Local<v8::Object> loadModule(ModuleInfo* module);
             void setupContext();
             bool generateDefs();
 
@@ -58,5 +60,8 @@ namespace t4ext {
             v8::Local<v8::Context> m_context; // this may need to be persistent
             robin_hood::unordered_map<utils::String, ModuleInfo*> m_modules;
             std::atomic<bool> m_isReady;
+            utils::String m_requestedModule;
+            utils::Array<utils::String> m_requireOriginStack;
+            time_t m_entryModificationTimeOnStartup;
     };
 };

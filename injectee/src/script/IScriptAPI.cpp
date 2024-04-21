@@ -6,8 +6,12 @@
 #include <filesystem>
 #include <windows.h>
 #include <psapi.h>
+#include <stdarg.h>
 
 namespace t4ext {
+    ICallbackData::~ICallbackData() {
+    }
+
     DataTypeField::DataTypeField(const utils::String& _name, DataType* _type, u32 _offset, u32 _flags) {
         name = _name;
         type = _type;
@@ -17,10 +21,10 @@ namespace t4ext {
     }
 
     void DataTypeField::setFlags(u32 f) {
-        memset(&flags, 0, sizeof(_Flags));
         if (f & Flags::IsReadOnly) flags.is_readonly = 1;
         if (f & Flags::IsPointer) flags.is_pointer = 1;
         if (f & Flags::IsNullable) flags.is_nullable = 1;
+        if (f & Flags::UseV8Accessors) flags.use_v8_accessors = 1;
     }
 
     FunctionArgument::FunctionArgument(const utils::String& _name, DataType* _type, u32 _flags) {
@@ -59,6 +63,7 @@ namespace t4ext {
     ) : m_args(args) {
         m_thisTp = thisTp;
         m_retTp = retTp;
+        m_deallocateReturnCallback = nullptr;
         memset(&m_flags, 0, sizeof(_Flags));
         setFlags(flags);
     }
@@ -68,6 +73,7 @@ namespace t4ext {
     
     void FunctionSignature::setFlags(u32 f) {
         if (f & Flags::ReturnsPointer) m_flags.returns_pointer = 1;
+        if (f & Flags::DeallocateReturnAfterCall) m_flags.deallocate_return_after_call = 1;
     }
 
     FunctionSignature::_Flags& FunctionSignature::getFlags() {
@@ -84,6 +90,14 @@ namespace t4ext {
 
     DataType* FunctionSignature::getRetTp() {
         return m_retTp;
+    }
+
+    void FunctionSignature::setReturnValueDeallocationCallback(ReturnValueDeallocationCallback deallocationCallback) {
+        m_deallocateReturnCallback = deallocationCallback;
+    }
+
+    FunctionSignature::ReturnValueDeallocationCallback FunctionSignature::getReturnValueDeallocationCallback() {
+        return m_deallocateReturnCallback;
     }
 
     bool FunctionSignature::returnsPointer() {
@@ -129,8 +143,23 @@ namespace t4ext {
         return this;
     }
 
-    Function* Function::setArgNullable(u32 idx) {
-        m_sig.getArgs()[idx].flags.is_nullable = 1;
+    Function* Function::setArgNullable(u32 idx, bool nullable) {
+        m_sig.getArgs()[idx].flags.is_nullable = nullable ? 1 : 0;
+        return this;
+    }
+
+    Function* Function::setReturnNullable(bool nullable) {
+        m_sig.getFlags().return_nullable = nullable ? 1 : 0;
+        return this;
+    }
+    
+    Function* Function::setReturnValueDeallocationCallback(FunctionSignature::ReturnValueDeallocationCallback deallocationCallback) {
+        m_sig.setReturnValueDeallocationCallback(deallocationCallback);
+        return this;
+    }
+    
+    Function* Function::setSignatureFlags(u32 flags) {
+        m_sig.setFlags(flags);
         return this;
     }
 
@@ -149,7 +178,37 @@ namespace t4ext {
         m_name = name;
         m_size = size;
         m_primitiveType = primitiveType;
+        m_elementType = nullptr;
+        m_elemTpPointers = false;
         m_isFunction = false;
+        m_isArray = false;
+
+        m_ffiType.size = m_ffiType.alignment = 0;
+        m_ffiType.type = FFI_TYPE_STRUCT;
+        m_ffiElems.push(nullptr);
+
+        switch (m_primitiveType) {
+            case Primitive::pt_char: { m_ffiType = ffi_type_schar; break; }
+            case Primitive::pt_u8: { m_ffiType = ffi_type_uint8; break; }
+            case Primitive::pt_i8: { m_ffiType = ffi_type_sint8; break; }
+            case Primitive::pt_i16: { m_ffiType = ffi_type_sint16; break; }
+            case Primitive::pt_i32: { m_ffiType = ffi_type_sint32; break; }
+            case Primitive::pt_i64: { m_ffiType = ffi_type_sint64; break; }
+            case Primitive::pt_u16: { m_ffiType = ffi_type_uint16; break; }
+            case Primitive::pt_u32: { m_ffiType = ffi_type_uint32; break; }
+            case Primitive::pt_u64: { m_ffiType = ffi_type_uint64; break; }
+            case Primitive::pt_f32: { m_ffiType = ffi_type_float; break; }
+            case Primitive::pt_f64: { m_ffiType = ffi_type_double; break; }
+            case Primitive::pt_pointer: { m_ffiType = ffi_type_pointer; break; }
+            case Primitive::pt_enum: {
+                switch (size) {
+                    case 1: { m_ffiType = ffi_type_uint8; break; }
+                    case 2: { m_ffiType = ffi_type_uint16; break; }
+                    case 4: { m_ffiType = ffi_type_uint32; break; }
+                    case 8: { m_ffiType = ffi_type_uint64; break; }
+                }
+            }
+        }
 
         memset(&m_flags, 0, sizeof(_Flags));
         m_flags.needs_host_construction = 1; // assume this for safety
@@ -159,10 +218,34 @@ namespace t4ext {
         m_api = api;
         m_size = sizeof(void*);
         m_primitiveType = Primitive::pt_none;
+        m_elementType = nullptr;
+        m_elemTpPointers = false;
         m_isFunction = true;
+        m_isArray = false;
+        m_ffiType = ffi_type_pointer;
 
         memset(&m_flags, 0, sizeof(_Flags));
         m_flags.needs_host_construction = 1;
+    }
+
+    DataType::DataType(IScriptAPI* api, DataType* elemTp, bool isPointer) : m_cbSignature(nullptr, nullptr, {}, 0) {
+        m_api = api;
+        m_size = sizeof(utils::Array<void*>);
+        m_primitiveType = Primitive::pt_none;
+        m_elementType = elemTp;
+        m_elemTpPointers = isPointer;
+        m_isFunction = true;
+        m_isArray = false;
+        m_isFunction = false;
+        m_isArray = true;
+
+        m_ffiType.size = m_ffiType.alignment = 0;
+        m_ffiType.type = FFI_TYPE_STRUCT;
+        m_ffiElems.push(&ffi_type_uint32);
+        m_ffiElems.push(&ffi_type_uint32);
+        m_ffiElems.push(&ffi_type_pointer);
+        m_ffiElems.push(nullptr);
+        m_ffiType.elements = m_ffiElems.data();
     }
 
     DataType::~DataType() {
@@ -177,6 +260,16 @@ namespace t4ext {
     void DataType::addField(const DataTypeField& field) {
         if (m_primitiveType != Primitive::pt_none) return;
         m_fields.push(field);
+        if (!field.type->isPrimitive() || (field.flags.is_pointer && field.type->m_primitiveType != Primitive::pt_char)) {
+            m_fields.last().flags.use_v8_accessors = 1;
+        }
+
+        m_ffiElems[m_ffiElems.size() - 1] = &m_fields.last().type->m_ffiType;
+        m_ffiElems.push(nullptr);
+
+        m_ffiType.size = m_ffiType.alignment = 0;
+        m_ffiType.type = FFI_TYPE_STRUCT;
+        m_ffiType.elements = m_ffiElems.data();
     }
 
     void DataType::addMethod(Function* method) {
@@ -202,6 +295,10 @@ namespace t4ext {
         return m_api;
     }
 
+    ffi_type* DataType::getFFI() {
+        return &m_ffiType;
+    }
+
     const utils::String& DataType::getName() {
         return m_name;
     }
@@ -218,12 +315,24 @@ namespace t4ext {
         return m_isFunction;
     }
 
+    bool DataType::isArray() {
+        return m_isArray;
+    }
+
     Primitive DataType::getPrimitiveType() {
         return m_primitiveType;
     }
     
     FunctionSignature& DataType::getSignature() {
         return m_cbSignature;
+    }
+    
+    DataType* DataType::getElementType() {
+        return m_elementType;
+    }
+    
+    bool DataType::areElementsPointers() {
+        return m_elemTpPointers;
     }
 
     DataType::_Flags& DataType::getFlags() {
@@ -281,11 +390,11 @@ namespace t4ext {
         if (m_pathBase.size() > 0 && m_pathBase[m_pathBase.size() - 1] == '/') {
             m_pathBase = utils::String::View(m_pathBase.c_str(), m_pathBase.size() - 1);
         }
-        m_entryPath = m_pathBase + "/scripts/main.ts";
+        m_scriptPath = m_pathBase + "/scripts";
         
-        log("base: %s", m_pathBase.c_str());
         log("exe: %s", m_exePath.c_str());
-        log("entry: %s", m_entryPath.c_str());
+        log("base: %s", m_pathBase.c_str());
+        log("script: %s", m_scriptPath.c_str());
 
         return true;
     }
@@ -298,8 +407,8 @@ namespace t4ext {
         return m_pathBase;
     }
 
-    const utils::String& IScriptAPI::getScriptEntrypointPath() {
-        return m_entryPath;
+    const utils::String& IScriptAPI::getScriptPath() {
+        return m_scriptPath;
     }
     
     void IScriptAPI::beginNamespace(const utils::String& name) {
@@ -331,6 +440,11 @@ namespace t4ext {
         if (!m_currentNamespace) {
             error("No namespace has been started");
             return;
+        }
+
+        if (fn->getSignature().getFlags().returns_pointer) {
+            // assume nullable for safety
+            fn->setReturnNullable(true);
         }
         
         m_currentNamespace->globalFunctions.push(fn);
@@ -390,6 +504,19 @@ namespace t4ext {
     
     bool IScriptAPI::executeEntry() {
         return true;
+    }
+    
+    void IScriptAPI::scriptException(const utils::String& msg) {
+    }
+    
+    void IScriptAPI::scriptExceptionf(const char* fmt, ...) {
+        char buf[512] = { 0 };
+
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(buf, 512, fmt, ap);
+        scriptException(utils::String(fmt));
+        va_end(ap);
     }
 
     void IScriptAPI::signalTermination() {

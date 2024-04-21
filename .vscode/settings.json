@@ -1,6 +1,6 @@
 {
     "cmake.debugConfig": {
-        "externalConsole": true
+        "externalConsole": false
     },
     "files.associations": {
         "*.embeddedhtml": "html",
@@ -9,6 +9,10 @@
         "xmemory": "cpp",
         "functional": "cpp",
         "mutex": "cpp",
-        "atomic": "cpp"
+        "atomic": "cpp",
+        "chrono": "cpp",
+        "xtr1common": "cpp",
+        "filesystem": "cpp",
+        "xstring": "cpp"
     }
 }

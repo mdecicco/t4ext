@@ -8,18 +8,16 @@ namespace t4ext {
     class AppBase {
         public:
             AppBase();
-            virtual ~AppBase() = 0;
+            virtual ~AppBase();
 
-            virtual bool createWindow(const char* className, const char* title, u32 width, u32 height) = 0;
-            virtual void createDialog(DWORD dialogTemplateResourceId, const char* className) = 0;
-            virtual void FUN_005e6fe6() = 0;
-            virtual bool loadCursors() = 0;
-            virtual bool setClassName(const char* className, bool p2) = 0;
-            virtual bool createDialog(DWORD dialogTemplateResourceId) = 0;
-            virtual bool createWindow(const char* title, u32 width, u32 height) = 0;
-            virtual void FUN_005e1070(LPRECT p1) = 0;
-
-            static AppBase* Get();
+            virtual bool createWindow(const char* className, const char* title, u32 width, u32 height);
+            virtual void createDialog(DWORD dialogTemplateResourceId, const char* className);
+            virtual void FUN_005e6fe6();
+            virtual bool loadCursors();
+            virtual bool setClassName(const char* className, bool p2);
+            virtual bool createDialog(DWORD dialogTemplateResourceId);
+            virtual bool createWindow(const char* title, u32 width, u32 height);
+            virtual void FUN_005e1070(LPRECT p1);
 
             undefined4 field_0x4;
             HINSTANCE instance;

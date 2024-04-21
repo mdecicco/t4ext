@@ -27,13 +27,7 @@ namespace t4ext {
 
     class TimeoutEvent : public IEvent {
         public:
-            enum class Type {
-                Created,
-                ExecuteCallback,
-                Destroyed
-            };
-
-            TimeoutEvent();
+            TimeoutEvent(u32 timeoutId);
             virtual ~TimeoutEvent();
 
             virtual void process(IScriptAPI* api);
@@ -41,7 +35,6 @@ namespace t4ext {
         protected:
             friend class TimeoutEventType;
             u32 m_timeoutId;
-            Type m_actionType;
     };
     
     class TimeoutEventType : public IEventType {
@@ -55,10 +48,9 @@ namespace t4ext {
 
             void processTimeouts();
 
-            virtual void bind(DataType* eventTp);
             virtual bool canProduceEvents();
-            virtual IEvent* createEvent();
-            virtual void destroyEvent(IEvent* event);
+            TimeoutEvent* createEvent(u32 timeoutId);
+            void destroyEvent(TimeoutEvent* event);
         
         protected:
             u32 m_nextTimeoutId;

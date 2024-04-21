@@ -33,6 +33,7 @@ add_sources("core"          "core")
 add_sources("hooks"         "hooks")
 add_sources("script"        "script")
 add_sources("events"        "events")
+add_sources("builtin"       "builtin")
 add_sources("bindings"      "bindings")
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 

@@ -8,7 +8,7 @@
 namespace t4ext {
     class UpdateListener {
         public:
-            UpdateListener(ICallback<void>& callback);
+            UpdateListener(Callback<void>& callback);
             virtual ~UpdateListener();
 
             void execute();
@@ -19,7 +19,7 @@ namespace t4ext {
             u32 m_id;
             UpdateListener* m_next;
             UpdateListener* m_last;
-            ICallback<void>* m_callback;
+            Callback<void>* m_callback;
     };
     
     class UpdateEventType;
@@ -36,21 +36,19 @@ namespace t4ext {
             UpdateEventType();
             virtual ~UpdateEventType();
 
-            u32 createListener(ICallback<void>& callback);
+            u32 createListener(Callback<void>& callback);
             void removeListener(u32 id);
             void notifyListeners();
 
-            virtual void bind(DataType* eventTp);
             virtual bool canProduceEvents();
-            virtual IEvent* createEvent();
-            virtual void destroyEvent(IEvent* event);
+            UpdateEvent* createEvent();
+            void destroyEvent(UpdateEvent* event);
         
         protected:
             u32 m_nextListenerId;
             UpdateListener* m_listeners;
             UpdateListener* m_lastListener;
             robin_hood::unordered_map<u32, UpdateListener*> m_listenerMap;
-            utils::PagedAllocator<UpdateEvent> m_allocator;
     };
 
     class EngineUpdateEventType : public UpdateEventType {};

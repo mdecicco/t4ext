@@ -9,5 +9,12 @@ namespace t4ext {
     // Also, there are a few other classes in the inheritance chain between these two
     class Application : public AppBase {
         public:
+            static Application* Get();
+
+            void** field1_0x258;
+            undefined4 padding[5];
+            bool isWindowed;
+            undefined padding1[0x45AC3];
+            bool wantsFullScreen;
     };
 };

@@ -14,10 +14,7 @@ namespace t4ext {
 
             const utils::String& getName() const;
 
-            virtual void bind(DataType* eventTp);
             virtual bool canProduceEvents();
-            virtual IEvent* createEvent();
-            virtual void destroyEvent(IEvent* event);
         
         protected:
             friend class IScriptAPI;

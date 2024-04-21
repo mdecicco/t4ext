@@ -1,42 +1,43 @@
-#include <events/Update.h>
+#include <events/ActorDestroy.h>
 #include <script/IScriptAPI.hpp>
+#include <core/CActor.h>
 
 #include <Client.h>
 #include <utils/Allocator.hpp>
 #include <utils/Singleton.hpp>
 
 namespace t4ext {
-    UpdateListener::UpdateListener(Callback<void>& callback) {
+    ActorDestroyListener::ActorDestroyListener(Callback<void, CActor*>& callback) {
         m_id = 0;
         m_last = m_next = nullptr;
         m_callback = &callback;
     }
 
-    UpdateListener::~UpdateListener() {
+    ActorDestroyListener::~ActorDestroyListener() {
         delete m_callback;
     }
 
-    void UpdateListener::execute() {
-        m_callback->call();
+    void ActorDestroyListener::execute(CActor* actor) {
+        m_callback->call(actor);
     }
 
-    UpdateEventType::UpdateEventType() {
+    ActorDestroyEventType::ActorDestroyEventType() {
         m_nextListenerId = 1;
         m_listeners = m_lastListener = nullptr;
     }
 
-    UpdateEventType::~UpdateEventType() {
-        UpdateListener* n = m_listeners;
+    ActorDestroyEventType::~ActorDestroyEventType() {
+        ActorDestroyListener* n = m_listeners;
         while (n) {
-            UpdateListener* next = n->m_next;
+            ActorDestroyListener* next = n->m_next;
             delete n;
             n = next;
         }
         m_listeners = m_lastListener = nullptr;
     }
     
-    u32 UpdateEventType::createListener(Callback<void>& callback) {
-        UpdateListener* listener = new UpdateListener(callback);
+    u32 ActorDestroyEventType::createListener(Callback<void, CActor*>& callback) {
+        ActorDestroyListener* listener = new ActorDestroyListener(callback);
         listener->m_id = m_nextListenerId;
 
         if (m_lastListener) {
@@ -51,13 +52,13 @@ namespace t4ext {
         return m_nextListenerId++;
     }
 
-    void UpdateEventType::removeListener(u32 id) {
+    void ActorDestroyEventType::removeListener(u32 id) {
         auto it = m_listenerMap.find(id);
         if (it == m_listenerMap.end()) return;
 
         m_listenerMap.erase(it);
 
-        UpdateListener* n = it->second;
+        ActorDestroyListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_listeners == n) m_listeners = nullptr;
@@ -66,36 +67,37 @@ namespace t4ext {
         delete n;
     }
 
-    void UpdateEventType::notifyListeners() {
-        UpdateListener* n = m_listeners;
+    void ActorDestroyEventType::notifyListeners(CActor* actor) {
+        ActorDestroyListener* n = m_listeners;
         while (n) {
-            n->execute();
+            n->execute(actor);
             n = n->m_next;
         }
     }
 
-    bool UpdateEventType::canProduceEvents() {
+    bool ActorDestroyEventType::canProduceEvents() {
         // If there are no active timeouts, there is no chance of any
         // timeout events occurring
         return m_listeners != nullptr;
     }
     
-    UpdateEvent* UpdateEventType::createEvent() {
-        return new UpdateEvent(this);
+    ActorDestroyEvent* ActorDestroyEventType::createEvent(CActor* actor) {
+        return new ActorDestroyEvent(this, actor);
     }
     
-    void UpdateEventType::destroyEvent(UpdateEvent* event) {
+    void ActorDestroyEventType::destroyEvent(ActorDestroyEvent* event) {
         delete event;
     }
     
-    UpdateEvent::UpdateEvent(UpdateEventType* tp) : IEvent(tp) {
+    ActorDestroyEvent::ActorDestroyEvent(ActorDestroyEventType* tp, CActor* actor) : IEvent(tp) {
+        m_actor = actor;
     }
 
-    UpdateEvent::~UpdateEvent() {
+    ActorDestroyEvent::~ActorDestroyEvent() {
     }
 
-    void UpdateEvent::process(IScriptAPI* api) {
-        ((UpdateEventType*)m_type)->notifyListeners();
-        ((UpdateEventType*)m_type)->destroyEvent(this);
+    void ActorDestroyEvent::process(IScriptAPI* api) {
+        ((ActorDestroyEventType*)m_type)->notifyListeners(m_actor);
+        ((ActorDestroyEventType*)m_type)->destroyEvent(this);
     }
 };

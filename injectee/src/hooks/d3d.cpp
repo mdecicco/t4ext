@@ -1,7 +1,6 @@
 #include <hooks/d3d.h>
 #include <utils/Singleton.hpp>
 #include <Client.h>
-#include <core/AppBase.h>
 
 #include <MinHook.h>
 
@@ -54,16 +53,12 @@ namespace t4ext {
         lExStyle |= WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE;
         SetWindowLong(m_window, GWL_EXSTYLE, lExStyle);
 
-        bool result = SetWindowPos(
+        SetWindowPos(
             m_window,
             NULL,
             0,0,0,0,
             SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER
         );
-
-        pPresentationParameters->BackBufferWidth = AppBase::Get()->windowWidth;
-        pPresentationParameters->BackBufferHeight = AppBase::Get()->windowHeight;
-        pPresentationParameters->Windowed = TRUE;
         
         HRESULT hRet = m_d3d->CreateDevice(Adapter, DeviceType, hFocusWindow, BehaviorFlags, pPresentationParameters, ppReturnedDeviceInterface);
         
@@ -121,7 +116,7 @@ namespace t4ext {
 		m_PresentParam = *pPresentParam;
 		m_d3d = pIDirect3D9;
         m_window = nullptr;
-        
+
         gClient::Get()->onDeviceInit(this);
     }
 

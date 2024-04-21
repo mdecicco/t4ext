@@ -63,10 +63,18 @@ namespace t4ext {
             utils::Array<CLevel*> getLevels();
             CLevel* getCurrentLevel();
             
-            u32 addUpdateListener(t4ext::ICallback<void>& callback);
+            u32 addUpdateListener(t4ext::Callback<void>& callback);
             void removeUpdateListener(u32 id);
-            u32 addRenderListener(t4ext::ICallback<void>& callback);
+            u32 addRenderListener(t4ext::Callback<void>& callback);
             void removeRenderListener(u32 id);
+            u32 addActorCreateListener(t4ext::Callback<void, CActor*>& callback);
+            void removeActorCreateListener(u32 id);
+            u32 addActorDestroyListener(t4ext::Callback<void, CActor*>& callback);
+            void removeActorDestroyListener(u32 id);
+            u32 addLevelCreateListener(t4ext::Callback<void, CLevel*>& callback);
+            void removeLevelCreateListener(u32 id);
+            u32 addLevelDestroyListener(t4ext::Callback<void, CLevel*>& callback);
+            void removeLevelDestroyListener(u32 id);
             void disableInput();
             void enableInput();
 

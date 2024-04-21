@@ -7,8 +7,18 @@
 #include <utils/robin_hood.h>
 
 #include <type_traits>
+#include <ffi.h>
 
 namespace t4ext {
+    template<class T> struct remove_all { typedef T type; };
+    template<class T> struct remove_all<T*> : remove_all<T> {};
+    template<class T> struct remove_all<T&> : remove_all<T> {};
+    template<class T> struct remove_all<T&&> : remove_all<T> {};
+    template<class T> struct remove_all<T const> : remove_all<T> {};
+    template<class T> struct remove_all<T volatile> : remove_all<T> {};
+    template<class T> struct remove_all<T const volatile> : remove_all<T> {};
+    template<class T> struct remove_all<T[]> : remove_all<T> {};
+
     class IEventType;
     class IEvent;
     class DataType;
@@ -31,32 +41,55 @@ namespace t4ext {
 	    pt_pointer
     };
 
-    template <typename Ret, typename ...Args>
-    class ICallback {
+    class ICallbackData {
         public:
-            virtual ~ICallback();
+            virtual ~ICallbackData();
+    };
+
+    template <typename Ret, typename ...Args>
+    class Callback {
+        public:
+            Callback(ICallbackData* data);
+            ~Callback();
 
             // proxy for call method
             Ret operator()(Args...);
             Ret call(Args...);
+        
+        protected:
+            ICallbackData* m_data;
     };
 
     template <typename C> struct is_callback : std::false_type {};
-    template <typename Ret, typename... Args> struct is_callback<ICallback<Ret, Args...>> : std::true_type {};
+    template <typename Ret, typename... Args> struct is_callback<Callback<Ret, Args...>> : std::true_type {};
     template <typename C> inline constexpr bool is_callback_v = is_callback<C>::value;
+
+    template <class T> struct callback_type {};
+    template <typename Ret, typename... Args>
+    struct callback_type<Callback<Ret, Args...>> { using value_type = Ret(Args...); };
+
+    template <typename C> struct is_array : std::false_type {};
+    template <typename ElemTp> struct is_array<utils::Array<ElemTp>> : std::true_type {};
+    template <typename C> inline constexpr bool is_array_v = is_array<C>::value;
+
+    template <class T> struct array_type {};
+    template <typename ElemTp>
+    struct array_type<utils::Array<ElemTp>> { using value_type = ElemTp; };
 
     struct DataTypeField {
         struct _Flags {
             unsigned is_readonly : 1;
             unsigned is_pointer  : 1;
             unsigned is_nullable : 1;
-            unsigned _unused : 5;
+            unsigned use_v8_accessors : 1;
+            unsigned _unused : 4;
         };
         enum Flags {
             None = 0,
             IsReadOnly = 0b00000001,
             IsPointer  = 0b00000010,
-            IsNullable = 0b00000100
+            IsNullable = 0b00000100,
+            UseV8Accessors = 0b00001000
         };
 
         DataTypeField(const utils::String& name, DataType* type, u32 offset, u32 flags);
@@ -111,13 +144,26 @@ namespace t4ext {
 
     class FunctionSignature {
         public:
+            typedef void (*ReturnValueDeallocationCallback)(u8* data);
             struct _Flags {
                 unsigned returns_pointer : 1;
-                unsigned _unused : 7;
+                unsigned return_nullable : 1;
+                unsigned deallocate_return_after_call : 1;
+                unsigned _unused : 5;
             };
             enum Flags {
                 None = 0,
-                ReturnsPointer = 0b00000001,
+                ReturnsPointer            = 0b00000001,
+                ReturnsNullable           = 0b00000010,
+                /**
+                 * @brief 
+                 * If your function's return value must be dynamically allocated, either it MUST be allocated
+                 * like `u8* returnValue = new u8[size of return data]` or you need to specify an explicit return
+                 * value deallocation callback via `setReturnValueDeallocationCallback`. If you need to return a
+                 * dynamically allocated class with a destructor, you MUST specify a custom deallocation callback
+                 * or else the destructor for the class will not be called.
+                 */
+                DeallocateReturnAfterCall = 0b00000100 
             };
 
             FunctionSignature(DataType* thisTp, DataType* retTp, const utils::Array<FunctionArgument>& args, u32 flags);
@@ -128,12 +174,15 @@ namespace t4ext {
             utils::Array<FunctionArgument>& getArgs();
             DataType* getThisTp();
             DataType* getRetTp();
+            void setReturnValueDeallocationCallback(ReturnValueDeallocationCallback deallocationCallback);
+            ReturnValueDeallocationCallback getReturnValueDeallocationCallback();
             bool returnsPointer();
 
         protected:
             DataType* m_thisTp;
             DataType* m_retTp;
             _Flags m_flags;
+            ReturnValueDeallocationCallback m_deallocateReturnCallback;
             utils::Array<FunctionArgument> m_args;
     };
 
@@ -145,7 +194,10 @@ namespace t4ext {
             const utils::String& getName();
             FunctionSignature& getSignature();
             Function* setArgNames(const utils::Array<utils::String>& names);
-            Function* setArgNullable(u32 idx);
+            Function* setArgNullable(u32 idx, bool nullable = true);
+            Function* setReturnNullable(bool nullable = true);
+            Function* setReturnValueDeallocationCallback(FunctionSignature::ReturnValueDeallocationCallback deallocationCallback);
+            Function* setSignatureFlags(u32 flags);
             void* getAddress();
 
         protected:
@@ -169,6 +221,7 @@ namespace t4ext {
 
             DataType(IScriptAPI* api, const utils::String& name, u32 size, Primitive primitiveType = Primitive::pt_none);
             DataType(IScriptAPI* api, DataType* retTp, const utils::Array<FunctionArgument>& args, u32 flags);
+            DataType(IScriptAPI* api, DataType* elementType, bool isPointer);
             ~DataType();
 
             void setFlags(u32 f);
@@ -178,12 +231,16 @@ namespace t4ext {
             void bindEnumValue(const utils::String& name, u32 enumValue);
 
             IScriptAPI* getApi();
+            ffi_type* getFFI();
             const utils::String& getName();
             u32 getSize();
             bool isPrimitive();
             bool isFunction();
+            bool isArray();
             Primitive getPrimitiveType();
             FunctionSignature& getSignature();
+            DataType* getElementType();
+            bool areElementsPointers();
             _Flags& getFlags();
             utils::Array<DataTypeField>& getFields();
             utils::Array<Function*>& getMethods();
@@ -192,15 +249,23 @@ namespace t4ext {
             template <typename Cls, typename Ret, typename ...Args>
             Function* bind(const utils::String& name, Ret(Cls::*fn)(Args...));
 
+            template <typename Cls, typename Ret, typename ...Args>
+            Function* bind(const utils::String& name, Ret(Cls::*fn)(Args...) const);
+
             template <typename Cls, typename T>
             DataTypeField* bind(const utils::String& name, T Cls::* property);
 
         protected:
             IScriptAPI* m_api;
+            ffi_type m_ffiType;
+            utils::Array<ffi_type*> m_ffiElems;
             utils::String m_name;
             u32 m_size;
             Primitive m_primitiveType;
             FunctionSignature m_cbSignature;
+            DataType* m_elementType;
+            bool m_elemTpPointers;
+            bool m_isArray;
             bool m_isFunction;
             _Flags m_flags;
             utils::Array<DataTypeField> m_fields;
@@ -223,7 +288,7 @@ namespace t4ext {
             bool initPaths();
             const utils::String& getGameExecutablePath();
             const utils::String& getGameBasePath();
-            const utils::String& getScriptEntrypointPath();
+            const utils::String& getScriptPath();
 
             void beginNamespace(const utils::String& name);
             void endNamespace();
@@ -251,10 +316,6 @@ namespace t4ext {
             std::enable_if_t<std::is_enum_v<T>, DataType*>
             bind(const utils::String& name);
 
-            template <typename T>
-            std::enable_if_t<std::is_base_of_v<IEvent, T> || std::is_same_v<T, IEvent>, void>
-            registerEventType(IEventType* eventType, const utils::String& name);
-
             // Can be called from either thread
             virtual void dispatchEvent(IEvent* event);
 
@@ -264,6 +325,8 @@ namespace t4ext {
             virtual bool commitBindings();
             virtual bool shutdown();
             virtual bool executeEntry();
+            virtual void scriptException(const utils::String& msg);
+            virtual void scriptExceptionf(const char* fmt, ...);
 
             // Should be called from the main thread only
             virtual void signalTermination();
@@ -285,6 +348,6 @@ namespace t4ext {
 
             utils::String m_exePath;
             utils::String m_pathBase;
-            utils::String m_entryPath;
+            utils::String m_scriptPath;
     };
 };

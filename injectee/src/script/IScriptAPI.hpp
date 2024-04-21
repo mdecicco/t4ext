@@ -4,19 +4,6 @@
 #include <events/IEvent.h>
 
 namespace t4ext {
-    template <class T> struct callback_type {};
-    template <typename Ret, typename... Args>
-    struct callback_type<ICallback<Ret, Args...>> { using value_type = Ret(Args...); };
-
-    template<class T> struct remove_all { typedef T type; };
-    template<class T> struct remove_all<T*> : remove_all<T> {};
-    template<class T> struct remove_all<T&> : remove_all<T> {};
-    template<class T> struct remove_all<T&&> : remove_all<T> {};
-    template<class T> struct remove_all<T const> : remove_all<T> {};
-    template<class T> struct remove_all<T volatile> : remove_all<T> {};
-    template<class T> struct remove_all<T const volatile> : remove_all<T> {};
-    template<class T> struct remove_all<T[]> : remove_all<T> {};
-
     template<typename Fn> struct function_traits;
 
     // specialization for functions
@@ -73,22 +60,73 @@ namespace t4ext {
     };
 
     template <typename Ret, typename ...Args>
-    ICallback<Ret, Args...>::~ICallback() {}
-
-    template <typename Ret, typename ...Args>
-    Ret ICallback<Ret, Args...>::operator()(Args... args) {
-        // for now...
-        return CallCallback<Ret, Args...>((TypeScriptCallback*)this, args...);
+    Callback<Ret, Args...>::Callback(ICallbackData* data) {
+        m_data = data;
     }
 
     template <typename Ret, typename ...Args>
-    Ret ICallback<Ret, Args...>::call(Args... args) {
+    Callback<Ret, Args...>::~Callback() {
+        if (m_data) delete m_data;
+    }
+
+    template <typename Ret, typename ...Args>
+    Ret Callback<Ret, Args...>::operator()(Args... args) {
         // for now...
-        return CallCallback<Ret, Args...>((TypeScriptCallback*)this, args...);
+        return CallCallback<Ret, Args...>((TypeScriptCallbackData*)m_data, args...);
+    }
+
+    template <typename Ret, typename ...Args>
+    Ret Callback<Ret, Args...>::call(Args... args) {
+        // for now...
+        return CallCallback<Ret, Args...>((TypeScriptCallbackData*)m_data, args...);
     }
 
     template <typename Cls, typename Ret, typename ...Args>
     Function* DataType::bind(const utils::String& name, Ret(Cls::*fn)(Args...)) {
+        DataType* retTp = m_api->getType<Ret>();
+        bool returnsPtr = std::is_pointer_v<Ret> || std::is_reference_v<Ret>;
+        utils::Array<DataType*> argTps = { m_api->getType<Args>()... };
+        utils::Array<bool> argIsPtr = { (std::is_pointer_v<Args> || std::is_reference_v<Args>)... };
+        const char* argTpInfo[std::tuple_size_v<std::tuple<Args...>> + 1] = { typeid(std::remove_cvref_t<std::remove_pointer_t<Args>>).name()..., nullptr };
+
+        if (!std::is_same_v<Ret, void> && !retTp) {
+            m_api->error("Return type of function %s is '%s', which has not been bound", name.c_str(), typeid(std::remove_cvref_t<std::remove_pointer_t<Ret>>).name());
+        }
+
+        for (u32 i = 0;i < argTps.size();i++) {
+            if (argTps[i] == nullptr) {
+                m_api->error("Argument #%d of function %s is of type '%s', which has not been bound", i + 1, name.c_str(), argTpInfo[i]);
+                return nullptr;
+            }
+        }
+
+        u32 flags = 0;
+        if (returnsPtr) flags |= FunctionSignature::Flags::ReturnsPointer;
+
+        Function* bfn = new Function(
+            name,
+            (void*&)fn,
+            retTp,
+            argTps.map([argIsPtr](DataType* tp, u32 idx) {
+                u32 flags = 0;
+                if (argIsPtr[idx]) flags |= FunctionArgument::Flags::IsPointer;
+                return FunctionArgument(
+                    utils::String::Format("param_%d", idx + 1),
+                    tp,
+                    flags
+                );
+            }),
+            flags,
+            this
+        );
+
+        addMethod(bfn);
+
+        return bfn;
+    }
+
+    template <typename Cls, typename Ret, typename ...Args>
+    Function* DataType::bind(const utils::String& name, Ret(Cls::*fn)(Args...) const) {
         DataType* retTp = m_api->getType<Ret>();
         bool returnsPtr = std::is_pointer_v<Ret> || std::is_reference_v<Ret>;
         utils::Array<DataType*> argTps = { m_api->getType<Args>()... };
@@ -145,8 +183,11 @@ namespace t4ext {
 
         u32 offset = (u8*)&((Cls*)nullptr->*property) - (u8*)nullptr;
 
-        u32 flags = DataTypeField::Flags::IsNullable; // Assume nullable for safety
-        if constexpr (std::is_pointer_v<T> || std::is_reference_v<T>) flags |= DataTypeField::Flags::IsPointer;
+        u32 flags = DataTypeField::Flags::None;
+        if constexpr (std::is_pointer_v<T> || std::is_reference_v<T>) {
+            flags |= DataTypeField::Flags::IsNullable; // Assume nullable for safety
+            flags |= DataTypeField::Flags::IsPointer;
+        }
 
         addField(DataTypeField(name, tp, offset, flags));
 
@@ -160,10 +201,10 @@ namespace t4ext {
 
         if constexpr (is_callback_v<typename remove_all<T>::type>) {
             // automatically bind signature types for convenience because we can
-
-            using traits = function_traits<typename callback_type<typename remove_all<T>::type>::value_type>;
             auto it = m_typeMap.find(hash);
             if (it != m_typeMap.end()) return it->second;
+
+            using traits = function_traits<typename callback_type<typename remove_all<T>::type>::value_type>;
 
             bool didError = false;
             DataType* retTp = traits::getRetType(this, didError);
@@ -177,6 +218,31 @@ namespace t4ext {
                 retTp,
                 args,
                 traits::returnsPointer() ? FunctionSignature::Flags::ReturnsPointer : FunctionSignature::Flags::None
+            );
+
+            addType(tp);
+
+            m_typeMap.insert(robin_hood::pair<size_t, DataType*>(hash, tp));
+
+            return tp;
+        } else if constexpr (is_array_v<typename remove_all<T>::type>) {
+            // automatically bind array types for convenience because we can
+            auto it = m_typeMap.find(hash);
+            if (it != m_typeMap.end()) return it->second;
+
+            DataType* elemTp = getType<typename array_type<typename remove_all<T>::type>::value_type>();
+            if (!elemTp) {
+                error(
+                    "Array element type is %s, which has not been bound",
+                    typeid(typename array_type<typename remove_all<T>::type>::value_type).name()
+                );
+                return nullptr;
+            }
+
+            DataType* tp = new DataType(
+                this,
+                elemTp,
+                std::is_pointer_v<typename array_type<typename remove_all<T>::type>::value_type> || std::is_reference_v<typename array_type<typename remove_all<T>::type>::value_type>
             );
 
             addType(tp);
@@ -330,16 +396,5 @@ namespace t4ext {
         m_typeMap.insert(robin_hood::pair<size_t, DataType*>(hash, tp));
 
         return tp;
-    }
-
-    template <typename T>
-    std::enable_if_t<std::is_base_of_v<IEvent, T> || std::is_same_v<T, IEvent>, void>
-    IScriptAPI::registerEventType(IEventType* eventType, const utils::String& name) {
-        eventType->setName(name);
-        
-        beginNamespace("t4");
-        DataType* tp = bind<T>(name);
-        eventType->bind(tp);
-        endNamespace();
     }
 }
