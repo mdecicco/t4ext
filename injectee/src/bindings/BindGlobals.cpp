@@ -3,6 +3,8 @@
 #include <events/EngineCreate.h>
 #include <events/Log.h>
 
+#include <core/CActor.h>
+
 #include <core/CGame.h>
 #include <core/AppBase.h>
 #include <windows.h>
@@ -19,5 +21,9 @@ namespace t4ext {
         api->bind("removeEngineCreateListener", +[](u32 listenerId) {
             utils::Singleton<EngineCreateEventType>::Get()->removeListener(listenerId);
         })->setArgNames({ "listenerId" });
+
+        api->bind("getLiveActors", +[]() -> const utils::Array<t4ext::CActor*>& {
+            return gClient::Get()->getLiveActors();
+        })->setReturnNullable(false);
     }
 };

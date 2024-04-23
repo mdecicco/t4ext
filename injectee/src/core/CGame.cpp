@@ -88,8 +88,10 @@ namespace t4ext {
     }
 
     void CGame::disableInput() {
+        gClient::Get()->setGameInputDisabled(true);
     }
 
     void CGame::enableInput() {
+        gClient::Get()->setGameInputDisabled(false);
     }
 };

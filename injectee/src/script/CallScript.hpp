@@ -34,12 +34,14 @@ namespace t4ext {
 
     template <typename Ret, typename ...Args>
     Ret CallCallback(TypeScriptCallbackData* cb, Args... args) {
+        TypeScriptAPI* api = (TypeScriptAPI*)gClient::Get()->getAPI();
+        v8::Isolate* isolate = api->getIsolate();
+        v8::HandleScope hs(isolate);
+
         constexpr u32 argc = std::tuple_size_v<std::tuple<Args...>>;
         v8::Local<v8::Value> callArgs[std::tuple_size_v<std::tuple<Args...>> + 1];
 
-        TypeScriptAPI* api = (TypeScriptAPI*)gClient::Get()->getAPI();
-        v8::Local<v8::Context>& context = api->getContext();
-        v8::Isolate* isolate = api->getIsolate();
+        v8::Local<v8::Context> context = api->getContext();
 
         if constexpr (argc > 0) {
             bool passedArgs = passArg(api, isolate, 0, callArgs, args...);
@@ -52,7 +54,8 @@ namespace t4ext {
             {
                 v8::TryCatch tc(isolate);
                 tc.SetVerbose(true);
-                v8::MaybeLocal<v8::Value> ret = cb->get(isolate)->Call(context, context->Global(), argc, callArgs);
+                v8::Local<v8::Function> func = cb->get(isolate);
+                v8::MaybeLocal<v8::Value> ret = func->Call(context, context->Global(), argc, callArgs);
                 if (tc.HasCaught()) {
                     api->logException(tc);
                     didExcept = true;

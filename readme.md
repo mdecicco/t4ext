@@ -13,7 +13,6 @@ at the moment.
     - [Namespaces](#namespaces)
     - [Global Mods](#global-mods)
     - [Actor Mods](#actor-mods)
-    - [Actor Type Mods](#actor-type-mods)
     - [Events](#events)
 
 ## Requirements
@@ -39,27 +38,27 @@ Good for testing and tinkering. Maybe not so much for writing production-grade m
 There are still many game engine features to expose to the scripts, and many things will need to be understood better in order to decrease the likelihood of causing the game to crash. As it stands, when the game loads with this modding framework it is more or less stable but occasionally it may crash either because it's using the game engine in ways it wasn't meant to be used or because there is still work to do on the interface between the scripts and the game.
 
 ## The script API
-The first thing to know about writing mod scripts for the game is that t4ext has a few different options as far as how you structure your mod. Right now there's really only two "types" of mods, but in the future there will be more.
+The first thing to know about writing mod scripts for the game is that t4ext has a few different options as far as how you structure your mod. Right now there's really only three "types" of mods, but in the future there may be more.
 
 These types are:
 - "Global" mods
     - This type is useful if you want easy access to changing the
     behavior of the game in general, or rendering some UI that is available at all times
+- "Actor" mods
+    - "Actor" is the term this game uses to refer to pretty much every object in the game world, including UI elements,
+    foliage, static and dynamic models, etc...
+    - Mods of this type will implement a `actorSelector` function which the mod manager will use to determine when
+    an actor should be bound to your mod. In addition to that, mods of this type will implement a `createController`
+    function which will create an `ActorController` for any actors that meet the mod's selection criteria.
+    - When an `ActorController` is created, the mod manager will keep track of it to make sure it's destroyed when
+    the relevant actor in the game is destroyed. It will also take care of calling the controller's various functions
+    when relevant events occur.
+    - This type will be useful for writing scripts to control specific actors in the game, or any group of actors that
+    meet some criteria. For example, you could write an actor mod for a specific bush in a specific level so that it
+    always tries to follow the player... Or you could write an actor mod gives that behavior to every bush in the game.
 - "Plain" mods
     - Plain mod scripts don't have to follow any structure and can be set up however you want, but currently
-    will not have access to caching, and will not be automatically reloaded because they will not be tracked by the mod manager. This type makes sense if you want to run a simple script on startup or something like that
-
-Planned types:
-- "Actor" mods
-    - Mods of this type will be tied to individual "Actor"s in the game. `Actor` is the term the game uses to refer
-    to pretty much every object in the game world, including UI elements, foliage, static and dynamic models, etc...
-    - This type will be useful for writing scripts to control specific actors in the game. For example, you could
-    write an actor mod for a specific bush in a specific level so that it always tries to follow the player.
-- "Actor Type" mods
-    - Mods of this type will be tied to actor _types_. There are several different types of actors in the game.
-    Including but not limited to: weapons, pickups, foliage, ui elements, ...
-    - You could use this mod type to affect the behavior of all actors of a specific type. For example, you could
-    write a actor type mod so that ALL bushes in the game will try to follow the player
+    will not have access to caching, and will not be automatically reloaded because they will not be tracked by the mod manager. This type makes sense if you want to just run a script on startup or something like that
 - This might be all that's necessary but I'm not sure
 
 For any of the specific game types, like `CGame`, `CLevel`, `CActor`, you can use VS Code's autocompletions or view
@@ -137,6 +136,7 @@ class KeyboardEvent {
     readonly state: t4.KeyState;
 };
 ```
+[See here](https://github.com/mdecicco/t4scripts/blob/main/globals.d.ts#L856-L999) for more details about the `t4.KeyboardEvent` types.
 
 #### onUpdate(deltaTime: f32)
 This method will be called once per frame, immediately before the game engine updates itself. `deltaTime` is the
@@ -148,10 +148,54 @@ framebuffer to the screen. You can render your UI or anything you care about her
 amount of time in seconds that has passed since the last frame.
 
 ### Actor Mods
-todo
+Actor mods are similar to global mods in that you need to write a class for them and register them with the mod manager, but different
+in that you will also need to write at least one other class that will actually control actors. These other classes are called `ActorController`s.
+You can find a simple example of this concept [here](https://github.com/mdecicco/t4scripts/blob/main/examples/RiseUp.ts).
 
-### Actor Type Mods
-todo
+In that example you'll find a `RiseUpMod` class, which is sort of the entry point of the mod. It's registered similarly to global mods, except
+you use `ModMan.registerActorMod` instead of `ModMan.registerGlobalMod`. There is also a `RiseUpController` class which is the entity that will
+actually control the actors. The Mod manager will use `RiseUpMod.createController` to create one `RiseUpController` per actor, and it will also
+destroy the controller when the actor is destroyed by the game for any reason.
+
+The `ActorController` interface provides some methods that you can use to listen for important events that you may wish to affect the behavior of your mod.
+
+#### The ActorController interface
+##### onShutdown()
+This method will be called when your mod is about to be unloaded from the game, be it due to file modification or game exit
+
+##### onDestroy()
+This method will be called when the actor that this controller relates to is about to be destroyed by the game
+
+##### onKeyboardInput(event: t4.KeyboardEvent)
+This method will be called whenever there's keyboard input, the same as for global mods. [See here](https://github.com/mdecicco/t4scripts/blob/main/globals.d.ts#L856-L999) for details about the `t4.KeyboardEvent` type.
+This is all new so it may be subject to changes or additions.
+
+##### onUpdate(deltaTime: f32)
+This method will be called once per frame, immediately before the game engine updates itself. `deltaTime` is the
+amount of time in seconds that has passed since the last frame.
+
+In the future I would like for this to be called specifically when the actor is about to be updated, but I haven't figured out how to
+do that yet...
+
+##### onRender(deltaTime: f32)
+This method will be called after the game has put in all the work to render everything, but before presenting the
+framebuffer to the screen. You can render your UI or anything you care about here. `deltaTime` is the
+amount of time in seconds that has passed since the last frame.
+
+In the future I would like for this to be called specifically when the actor has finished rendering, but I haven't figured out how to
+do that yet...
+
+#### The ActorMod interface
+##### actorSelector(actor: t4.CActor)
+This method will be called for two reasons. Either an actor was just added to the level, or your mod was just loaded and the mod manager is
+checking against all the preexisting actors in the level. The purpose of this method is to determine if your mod cares about the actor
+that was added, and whether or not a controller should be created for it.
+
+##### createController(actor: t4.CActor)
+This method will be called whenever your mod should create a controller for an actor. You can create any kind of controller you want, it
+doesn't have to be all the same type of controller. The only thing that matters is that it's a class that implements some of the
+`ActorController` interface. In fact, it doesn't even need to do _that_. But if it doesn't have any of the methods then it's just
+sitting around doing nothing
 
 ### Events
 t4ext uses an event driven architecture for scripts. The v8 engine is constantly running in parallel with the game. The game has been modified to notify t4ext when certain key things occur, and t4ext will in turn notify the script engine of these events. Unless I've made a grave mistake, any code you write should be executed while the game is in a paused state, waiting on the scripts to process events. This is necessary because if you change something with the game engine while it's actively running it will very likely cause a crash. It is set up such that the script engine will try to limit the amount of time it spends processing events in an effort to not disrupt the game's normal function. So be careful about how much work your scripts are doing, in particular with any `onUpdate` and `onRender` methods.

@@ -27,7 +27,7 @@ namespace t4ext {
             DataType* cg = api->bind<CGame>("CGame");
             DataType* cl = api->bind<CLevel>("CLevel");
             DataType* ca = api->bind<CActor>("CActor");
-            DataType* bp = api->bind<CBasicPhysics>("CBasicPhysics");
+            DataType* bp = api->bind<CBasicPhysics>("CPhysicsInfo");
             DataType* ati = api->bind<CActorTypeInfo>("CActorTypeInfo");
 
             BindCGame(api, cg);

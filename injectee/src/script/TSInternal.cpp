@@ -36,6 +36,7 @@ namespace t4ext {
     void defineFunc(const v8::FunctionCallbackInfo<v8::Value>& args) {
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::HandleScope hs(isolate);
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         TypeScriptAPI::ModuleInfo* mod = new TypeScriptAPI::ModuleInfo;
@@ -66,6 +67,7 @@ namespace t4ext {
     void requireFunc(const v8::FunctionCallbackInfo<v8::Value>& args) {
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::EscapableHandleScope hs(args.GetIsolate());
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
         if (args.Length() == 0 || !args[0]->IsString()) {
             v8Throw(isolate, "Expected first parameter of 'require' to be a string, the module to require");
@@ -87,29 +89,32 @@ namespace t4ext {
         }
 
         if (!mod->exports.IsEmpty()) {
-            args.GetReturnValue().Set(mod->exports.Get(isolate));
+            args.GetReturnValue().Set(hs.Escape(mod->exports.Get(isolate)));
             return;
         }
 
         // https://github.com/amdjs/amdjs-api/wiki/require#requirestring-
         // That document specifically says I shouldn't do this, but what the heck, let's do it anyway
-        args.GetReturnValue().Set(api->loadModule(mod));
+        args.GetReturnValue().Set(hs.Escape(api->loadModule(mod)));
     }
     void eventPoll(const v8::FunctionCallbackInfo<v8::Value>& args) {
         bool doContinue = true;
+        v8::EscapableHandleScope hs(args.GetIsolate());
 
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         
         utils::Singleton<TimeoutEventType>::Get()->processTimeouts();
         
         if (api->handleEvents()) doContinue = false;
-        
-        args.GetReturnValue().Set(v8::Boolean::New(args.GetIsolate(), doContinue));
+
+        v8::Local<v8::Boolean> result = v8::Boolean::New(args.GetIsolate(), doContinue);
+        args.GetReturnValue().Set(hs.Escape(result));
     }
     void setTimeout(const v8::FunctionCallbackInfo<v8::Value>& args) {
         if (args.Length() == 0) return;
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::EscapableHandleScope hs(isolate);
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         if (!args[0]->IsFunction()) {
@@ -125,17 +130,17 @@ namespace t4ext {
         v8::Local<v8::Function> callback = args[0].As<v8::Function>();
         v8::Local<v8::Number> duration = args[1].As<v8::Number>();
 
-
         u32 dur = duration.IsEmpty() ? 0 : u32(duration->Value());
 
         TypeScriptTimeoutData* data = new TypeScriptTimeoutData(api, isolate, callback, dur, false);
         u32 id = utils::Singleton<TimeoutEventType>::Get()->createTimeout(data);
-        args.GetReturnValue().Set(v8::Number::New(isolate, id));
+        args.GetReturnValue().Set(hs.Escape(v8::Number::New(isolate, id)));
     }
     void setInterval(const v8::FunctionCallbackInfo<v8::Value>& args) {
         if (args.Length() == 0) return;
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::EscapableHandleScope hs(isolate);
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         if (!args[0]->IsFunction()) {
@@ -155,12 +160,13 @@ namespace t4ext {
         TypeScriptTimeoutData* data = new TypeScriptTimeoutData(api, isolate, callback, dur, true);
         u32 id = utils::Singleton<TimeoutEventType>::Get()->createTimeout(data);
 
-        args.GetReturnValue().Set(v8::Number::New(isolate, id));
+        args.GetReturnValue().Set(hs.Escape(v8::Number::New(isolate, id)));
     }
     void clearTimeout(const v8::FunctionCallbackInfo<v8::Value>& args) {
         if (args.Length() == 0) return;
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::HandleScope hs(isolate);
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         if (!args[0]->IsNumber()) {
@@ -174,6 +180,7 @@ namespace t4ext {
         if (args.Length() == 0) return;
         TypeScriptAPI* api = (TypeScriptAPI*)args.Data().As<v8::External>()->Value();
         v8::Isolate* isolate = args.GetIsolate();
+        v8::HandleScope hs(isolate);
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         if (!args[0]->IsNumber()) {

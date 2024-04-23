@@ -12,9 +12,7 @@ namespace t4ext {
         f32 field_0xC;
         f32 field_0x10;
         f32 field_0x14;
-        f32 Speed;
-        f32 field_0x1C;
-        f32 field_0x20;
+        utils::vec3f velocity;
         f32 field_0x24;
         f32 field_0x28;
         f32 field_0x2C;
@@ -124,18 +122,9 @@ namespace t4ext {
             void setRotation(const utils::vec3f& euler);
             void setScale(const utils::vec3f& scale);
             void setVisibility(bool isVisible);
-            void setCollides(undefined4 value);
-            void setTouches(undefined4 value);
-            void setIgnores(undefined4 value);
-            CLevel* getLevel();
-            const char* getName();
-            const char* getTypeName();
+            bool isVisible();
             CActor* getPrev();
             CActor* getNext();
-            utils::vec4f& getPosition();
-            utils::vec3f& getScale();
-            utils::quatf& getRotation();
-            utils::mat4f& getTransform();
 
             undefined4 field_0x4;
             undefined4 field_0x8;
@@ -154,8 +143,8 @@ namespace t4ext {
             u32 type;
             undefined4 field_0x28;
             undefined4 field_0x2C;
-            undefined4 field_0x30;
-            undefined4 field_0x34;
+            u32 flags0;
+            u32 flags1;
             utils::vec4f position;
             CLevel* level;
             undefined field_0x4C;
@@ -196,6 +185,7 @@ namespace t4ext {
             undefined4 field_0x8C;
             undefined4 field_0x90;
             undefined4 field_0x94;
+            undefined4 field_0x98;
             undefined4 field_0x9C;
             undefined4 field_0xA0;
             undefined4 field_0xA4;
@@ -213,10 +203,8 @@ namespace t4ext {
             undefined4 field_0xD4;
             undefined4 field_0xD8;
             u32 unknownFlag;
-            utils::quatf rotation;
-            undefined4 field_0xF0;
-            undefined4 field_0xF4;
-            undefined4 field_0xF8;
+            utils::quatf rotationQuat;
+            utils::vec3f rotationEuler;
             CBasicPhysics* basicPhysics;
             undefined4 field_0x100;
             utils::vec3f field_0x104;

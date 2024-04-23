@@ -260,9 +260,7 @@ namespace t4ext {
     void DataType::addField(const DataTypeField& field) {
         if (m_primitiveType != Primitive::pt_none) return;
         m_fields.push(field);
-        if (!field.type->isPrimitive() || (field.flags.is_pointer && field.type->m_primitiveType != Primitive::pt_char)) {
-            m_fields.last().flags.use_v8_accessors = 1;
-        }
+        m_fields.last().flags.use_v8_accessors = 1;
 
         m_ffiElems[m_ffiElems.size() - 1] = &m_fields.last().type->m_ffiType;
         m_ffiElems.push(nullptr);
@@ -456,11 +454,12 @@ namespace t4ext {
 
     bool IScriptAPI::handleEvents() {
         std::unique_lock<std::mutex> lock(m_batchMutex);
-        m_batchCondition.wait_for(lock, std::chrono::seconds(1), [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
+        m_batchCondition.wait_for(lock, std::chrono::seconds(4), [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
         if (m_batchFlag == false || m_shouldTerminate) {
             // either the game crashed or something else... In any case, we shouldn't
             // have been waiting this long. Let's get out of here
             error("Game has become unresponsive, terminating script thread so it can die");
+            m_shouldTerminate = true;
             return true;
         }
 
@@ -525,11 +524,13 @@ namespace t4ext {
     }
     
     void IScriptAPI::signalEventBatchStart() {
+        if (m_shouldTerminate) return;
         m_batchFlag = !m_batchFlag;
         m_batchCondition.notify_one();
     }
     
     void IScriptAPI::waitForEventBatchCompletion() {
+        if (m_shouldTerminate) return;
         std::unique_lock<std::mutex> lock(m_batchMutex);
         m_batchCondition.wait(lock, [this](){ return m_batchFlag == false; });
     }

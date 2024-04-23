@@ -35,6 +35,7 @@ namespace t4ext {
         }
 
         if (tp->isArray()) {
+            v8::EscapableHandleScope hs(isolate);
             // should mimic utils::Array
             struct _arr {
                 u32 size;
@@ -46,7 +47,7 @@ namespace t4ext {
             
             DataType* elemTp = tp->getElementType();
             bool elemTpPtr = tp->areElementsPointers();
-            u32 elemSz = tp->getElementType()->getSize();
+            u32 elemSz = elemTpPtr ? sizeof(void*) : tp->getElementType()->getSize();
 
             for (u32 i = 0;i < arrIn->size;i++) {
                 v8::Local<v8::Value> elem;
@@ -60,7 +61,7 @@ namespace t4ext {
                 elems.push(elem);
             }
 
-            *out = v8::Array::New(isolate, elems.data(), elems.size());
+            *out = hs.Escape(v8::Array::New(isolate, elems.data(), elems.size()));
             return true;
         }
 
@@ -102,97 +103,38 @@ namespace t4ext {
         // By this point, hostObj points to the actual memory address
         // of an instance of the type referred to by DataType.
 
+        v8::EscapableHandleScope hs(isolate);
+        
+        TypeScriptAPI* api = (TypeScriptAPI*)gClient::Get()->getAPI();
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-        v8::Local<v8::Object> obj = v8::Object::New(isolate);
+        v8::Local<v8::ObjectTemplate> templ = api->getTypeData(tp)->templ.Get(isolate);
+        v8::Local<v8::Object> obj;
+        if (!templ->NewInstance(isolate->GetCurrentContext()).ToLocal(&obj)) return false;
+
+        //v8::Local<v8::Object> obj = v8::Object::New(isolate);
         specifyThisPointer(obj, hostObj, tp, isolate);
 
-        // define fields
         utils::Array<DataTypeField>& fields = tp->getFields();
         for (DataTypeField& f : fields) {
-            if (f.flags.use_v8_accessors == 0) {
-                v8::Local<v8::Value> prop;
-
-                if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
-                    const char* op = isPtr ? "->" : ".";
-                    if (selfField) failurePath = op + f.name + failurePath;
-                    else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
-                    
-                    return false;
-                }
-
-                v8SetProp(obj, f.name, prop);
+            if (f.flags.use_v8_accessors == 1) {
+                // was exposed via getter/setter in the template
                 continue;
             }
 
-            v8SetPropAccessors(
-                obj,
-                f.name,
-                +[](const v8Args& args) {
-                    DataTypeField* field = (DataTypeField*)args.Data().As<v8::External>()->Value();
-                    if (!field) {
-                        v8Throw(args.GetIsolate(), "Failed to get field information when getting a property of a host object");
-                        return;
-                    }
+            v8::Local<v8::Value> prop;
 
-                    DataType* type = nullptr;
-                    void* self = extractThisPointer(args.This(), args.GetIsolate(), &type);
-                    if (!type || !self) {
-                        v8Throw(args.GetIsolate(), "Failed to find internal fields when getting property '%s' of a host object", field->name.c_str());
-                        return;
-                    }
+            if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
+                const char* op = isPtr ? "->" : ".";
+                if (selfField) failurePath = op + f.name + failurePath;
+                else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
+                
+                return false;
+            }
 
-                    v8::Local<v8::Value> result;
-                    utils::String failurePath;
-                    
-                    if (!convertToV8((u8*)self + field->offset, &result, field->type, field->flags.is_pointer, args.GetIsolate(), failurePath, nullptr)) {
-                        v8Throw(args.GetIsolate(), "Failed to convert '%s' from host type to script type", failurePath.c_str());
-                        return;
-                    }
-
-                    args.GetReturnValue().Set(result);
-                },
-                f.flags.is_readonly ? nullptr : +[](const v8Args& args) {
-                    DataTypeField* field = (DataTypeField*)args.Data().As<v8::External>()->Value();
-                    if (!field) {
-                        v8Throw(args.GetIsolate(), "Failed to get field information when setting a property of a host object");
-                        return;
-                    }
-
-                    DataType* type = nullptr;
-                    void* self = extractThisPointer(args.This(), args.GetIsolate(), &type);
-                    if (!type || !self) {
-                        v8Throw(args.GetIsolate(), "Failed to find internal fields when setting property '%s' of a host object", field->name.c_str());
-                        return;
-                    }
-
-                    v8::Local<v8::Value> result;
-                    utils::String failurePath;
-                    utils::String failureReason;
-                    utils::Array<ConvAlloc> allocs;
-                    if (!convertFromV8((void**)(u8*)self + field->offset, args[0], field->type, field->flags.is_pointer, allocs, args.GetIsolate(), failurePath, failureReason, nullptr)) {
-                        if (failureReason.size() > 0) {
-                            v8Throw(args.GetIsolate(), "Failed to convert '%s' from script type to host type with reason: %s", failurePath.c_str(), failureReason.c_str());
-                        } else {
-                            v8Throw(args.GetIsolate(), "Failed to convert '%s' from script type to host type", failurePath.c_str());
-                        }
-                        return;
-                    }
-
-                    args.GetReturnValue().Set(args[0]);
-                },
-                v8::External::New(isolate, &f),
-                v8::External::New(isolate, &f)
-            );
+            v8SetProp(obj, f.name, prop);
         }
 
-        // define methods
-        utils::Array<Function*>& methods = tp->getMethods();
-        for (Function* m : methods) {
-            v8::Local<v8::External> data = v8::External::New(isolate, m);
-            v8SetProp(obj, m->getName(), v8Func(isolate, HostCallHandler, data));
-        }
-
-        *out = obj;
+        *out = hs.Escape(obj);
         return true;
     }
 
@@ -222,6 +164,8 @@ namespace t4ext {
             failureReason = "Expected value type is wider than a void*, this is currently unsupported behavior";
             return false;
         }
+
+        v8::HandleScope hs(isolate);
 
         if (tp->isPrimitive()) {
             u64 minVal, maxVal;
@@ -440,7 +384,7 @@ namespace t4ext {
             v8::Local<v8::Array> arr = in.As<v8::Array>();
             DataType* elemTp = tp->getElementType();
             bool elemTpPtr = tp->areElementsPointers();
-            u32 elemSz = tp->getElementType()->getSize();
+            u32 elemSz = elemTpPtr ? sizeof(void*) : tp->getElementType()->getSize();
             u32 length = arr->Length();
 
             // must mimic utils::Array
@@ -543,27 +487,116 @@ namespace t4ext {
     }
     
     void specifyThisPointer(v8::Local<v8::Object>& onObject, void* thisPointer, DataType* type, v8::Isolate* isolate) {
-        v8SetProp(onObject, "__this_ptr", v8::External::New(isolate, thisPointer));
+        onObject->SetInternalField(0, v8::External::New(isolate, thisPointer));
+        onObject->SetInternalField(1, v8::External::New(isolate, type));
         v8SetProp(onObject, "__obj_id", v8::Uint32::New(isolate, (u32)thisPointer));
-        v8SetProp(onObject, "__type_ptr", v8::External::New(isolate, type));
     }
 
     void* extractThisPointer(const v8::Local<v8::Object>& maybeThisObj, v8::Isolate* isolate, DataType** outDataType) {
-        if (maybeThisObj.IsEmpty()) return 0;
-        if (!maybeThisObj->IsObject()) return 0;
+        if (maybeThisObj.IsEmpty()) return nullptr;
+        if (!maybeThisObj->IsObject()) return nullptr;
+        if (maybeThisObj->InternalFieldCount() != 2) return nullptr;
 
-        v8::Local<v8::Value> ptr;
-        if (!v8GetProp(maybeThisObj, "__this_ptr", &ptr)) return nullptr;
-        if (ptr.IsEmpty() || !ptr->IsExternal()) return nullptr;
+        void* result = nullptr;
+        {
+            v8::HandleScope hs(isolate);
+            v8::Local<v8::External> ptr = maybeThisObj->GetInternalField(0).As<v8::Value>().As<v8::External>();
+            if (ptr.IsEmpty() || !ptr->IsExternal()) return nullptr;
 
-        if (outDataType) {
-            v8::Local<v8::Value> typePtr;
-            if (!v8GetProp(maybeThisObj, "__type_ptr", &typePtr)) return nullptr;
-            if (typePtr.IsEmpty() || !typePtr->IsExternal()) return nullptr;
+            if (outDataType) {
+                v8::Local<v8::Value> typePtr = maybeThisObj->GetInternalField(1).As<v8::Value>().As<v8::External>();
+                if (typePtr.IsEmpty() || !typePtr->IsExternal()) return nullptr;
+                *outDataType = (DataType*)typePtr.As<v8::External>()->Value();
+            }
 
-            *outDataType = (DataType*)typePtr.As<v8::External>()->Value();
+            result = ptr.As<v8::External>()->Value();
         }
 
-        return ptr.As<v8::External>()->Value();
+        return result;
+    }
+
+    void v8Getter(const v8::FunctionCallbackInfo<v8::Value>& args) {
+        v8::EscapableHandleScope hs(args.GetIsolate());
+        DataTypeField* field = (DataTypeField*)args.Data().As<v8::External>()->Value();
+        if (!field) {
+            v8Throw(args.GetIsolate(), "Failed to get field information when getting a property of a host object");
+            return;
+        }
+
+        DataType* type = nullptr;
+        void* self = extractThisPointer(args.This(), args.GetIsolate(), &type);
+        if (!type || !self) {
+            v8Throw(args.GetIsolate(), "Failed to find internal fields when getting property '%s' of a host object", field->name.c_str());
+            return;
+        }
+
+        v8::Local<v8::Value> result;
+        utils::String failurePath;
+        
+        if (!convertToV8((u8*)self + field->offset, &result, field->type, field->flags.is_pointer, args.GetIsolate(), failurePath, nullptr)) {
+            v8Throw(args.GetIsolate(), "Failed to convert '%s' from host type to script type", failurePath.c_str());
+            return;
+        }
+
+        hs.Escape(result);
+        args.GetReturnValue().Set(result);
+    }
+
+    void v8Setter(const v8::FunctionCallbackInfo<v8::Value>& args) {
+        v8::EscapableHandleScope hs(args.GetIsolate());
+        DataTypeField* field = (DataTypeField*)args.Data().As<v8::External>()->Value();
+        if (!field) {
+            v8Throw(args.GetIsolate(), "Failed to get field information when setting a property of a host object");
+            return;
+        }
+
+        DataType* type = nullptr;
+        void* self = extractThisPointer(args.This(), args.GetIsolate(), &type);
+        if (!type || !self) {
+            v8Throw(args.GetIsolate(), "Failed to find internal fields when setting property '%s' of a host object", field->name.c_str());
+            return;
+        }
+
+        v8::Local<v8::Value> result;
+        utils::String failurePath;
+        utils::String failureReason;
+        utils::Array<ConvAlloc> allocs;
+        if (!convertFromV8((void**)(u8*)self + field->offset, args[0], field->type, field->flags.is_pointer, allocs, args.GetIsolate(), failurePath, failureReason, nullptr)) {
+            if (failureReason.size() > 0) {
+                v8Throw(args.GetIsolate(), "Failed to convert '%s' from script type to host type with reason: %s", failurePath.c_str(), failureReason.c_str());
+            } else {
+                v8Throw(args.GetIsolate(), "Failed to convert '%s' from script type to host type", failurePath.c_str());
+            }
+            return;
+        }
+
+        args.GetReturnValue().Set(args[0]);
+    }
+
+    void ObjectRefresher(const v8::FunctionCallbackInfo<v8::Value>& args) {
+        v8::HandleScope hs(args.GetIsolate());
+        v8::Local<v8::Object> selfV = args.This();
+        DataType* type = nullptr;
+        void* self = extractThisPointer(selfV, args.GetIsolate(), &type);
+        if (!type || !self) {
+            v8Throw(args.GetIsolate(), "Failed to find internal fields when refreshing host object");
+            return;
+        }
+
+        utils::Array<DataTypeField>& fields = type->getFields();
+        for (DataTypeField& f : fields) {
+            if (f.flags.use_v8_accessors == 0) {
+                v8::Local<v8::Value> result;
+                utils::String failurePath;
+                
+                if (!convertToV8((u8*)self + f.offset, &result, f.type, f.flags.is_pointer, args.GetIsolate(), failurePath, nullptr)) {
+                    v8Throw(args.GetIsolate(), "Failed to convert '%s' from host type to script type while refreshing host object", failurePath.c_str());
+                    return;
+                }
+
+                v8SetProp(selfV, f.name, result);
+                continue;
+            }
+        }
     }
 };

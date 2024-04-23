@@ -8,10 +8,9 @@ namespace t4ext {
         const v8::Local<v8::Function>& callback,
         u32 duration,
         bool doLoop
-    ) : ITimeoutData(duration, doLoop) {
+    ) : ITimeoutData(duration, doLoop), m_callback(isolate, callback){
         m_isolate = isolate;
         m_api = api;
-        m_callback.Reset(isolate, callback);
     }
 
     TypeScriptTimeoutData::~TypeScriptTimeoutData() {
@@ -19,6 +18,7 @@ namespace t4ext {
     }
 
     void TypeScriptTimeoutData::execute() {
+        v8::HandleScope hs(m_isolate);
         v8::Local<v8::Context> context = m_isolate->GetCurrentContext();
         v8::TryCatch tc(m_isolate);
         m_callback.Get(m_isolate)->Call(context, context->Global(), 0, nullptr);

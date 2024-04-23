@@ -135,7 +135,6 @@ namespace t4ext {
 
     void Call_CDecl(const v8::FunctionCallbackInfo<v8::Value>& callInfo, Function* target) {
         v8::Isolate* isolate = callInfo.GetIsolate();
-        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
 
         FunctionSignature& sig = target->getSignature();
         utils::Array<FunctionArgument>& expectedArgs = sig.getArgs();
@@ -197,10 +196,12 @@ namespace t4ext {
             return;
         }
 
-        void* returnValue = nullptr;
+        u64 returnValue = 0;
         ffi_call(&cif, (void(*)())target->getAddress(), &returnValue, argValues);
 
         if (sig.getRetTp()) {
+            v8::EscapableHandleScope hs(isolate);
+
             v8::Local<v8::Value> ret;
             utils::String failurePath;
             if (!convertToV8(&returnValue, &ret, sig.getRetTp(), sig.returnsPointer(), isolate, failurePath)) {
@@ -224,7 +225,7 @@ namespace t4ext {
                 return;
             }
 
-            callInfo.GetReturnValue().Set(ret);
+            callInfo.GetReturnValue().Set(hs.Escape(ret));
         }
         
         for (u32 a = 0;a < allocs.size();a++) {
@@ -252,7 +253,7 @@ namespace t4ext {
 
     void HostCallHandler(const v8::FunctionCallbackInfo<v8::Value>& args) {
         v8::Isolate* isolate = args.GetIsolate();
-        v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
+        v8::HandleScope hs(isolate);
 
         Function* f = (Function*)args.Data().As<v8::External>()->Value();
         FunctionSignature& sig = f->getSignature();

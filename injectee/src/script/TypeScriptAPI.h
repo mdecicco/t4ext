@@ -19,6 +19,10 @@ namespace t4ext {
         protected:
             v8::Persistent<v8::Function> m_callback;
     };
+
+    struct DataTypeData {
+        v8::Persistent<v8::ObjectTemplate> templ;
+    };
     
     class TypeScriptAPI : public IScriptAPI {
         public:
@@ -37,12 +41,14 @@ namespace t4ext {
             void unloadModule(ModuleInfo* module);
             void defineModule(ModuleInfo* module);
             v8::Isolate* getIsolate();
-            v8::Local<v8::Context>& getContext();
+            v8::Local<v8::Context> getContext();
+            DataTypeData* getTypeData(DataType* type);
 
             virtual bool initialize();
             virtual bool commitBindings();
             virtual bool shutdown();
             virtual bool executeEntry();
+            virtual bool handleEvents();
             virtual void scriptException(const utils::String& msg);
 
             void logException(const v8::TryCatch& exception);
@@ -57,8 +63,9 @@ namespace t4ext {
             std::unique_ptr<v8::Platform> m_platform;
             v8::ArrayBuffer::Allocator* m_arrayBufferAllocator;
             v8::Isolate* m_isolate;
-            v8::Local<v8::Context> m_context; // this may need to be persistent
+            v8::Global<v8::Context> m_context;
             robin_hood::unordered_map<utils::String, ModuleInfo*> m_modules;
+            robin_hood::unordered_map<DataType*, DataTypeData*> m_typeData;
             std::atomic<bool> m_isReady;
             utils::String m_requestedModule;
             utils::Array<utils::String> m_requireOriginStack;

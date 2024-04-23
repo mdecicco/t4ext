@@ -32,18 +32,20 @@ namespace t4ext {
     }
     
     v8::Local<v8::Function> v8Func(v8::Isolate* isolate, v8Callback cb, v8::Local<v8::Value> data) {
+        v8::EscapableHandleScope hs(isolate);
         v8::Local<v8::FunctionTemplate> templ = v8::FunctionTemplate::New(isolate, cb, data);
         v8::Local<v8::Function> result;
         if (!templ->GetFunction(isolate->GetCurrentContext()).ToLocal(&result)) {
             gClient::Get()->error("Failed to load function callback into V8, the function address was 0x%X", cb);
         }
 
-        return result;
+        return hs.Escape(result);
     }
     
     void v8SetProp(v8::Local<v8::Object>& obj, const utils::String& name, const v8::Local<v8::Value>& value) {
         if (obj.IsEmpty()) return;
         v8::Isolate* iso = obj->GetIsolate();
+        v8::HandleScope hs(iso);
 
         v8::Local<v8::String> key;
         if (!v8::String::NewFromUtf8(iso, name.c_str()).ToLocal(&key)) {
@@ -58,6 +60,7 @@ namespace t4ext {
     void v8SetPropAccessors(v8::Local<v8::Object>& obj, const utils::String& name, v8Callback getter, v8Callback setter, v8::Local<v8::Value> getterData, v8::Local<v8::Value> setterData) {
         if (obj.IsEmpty() || !getter) return;
         v8::Isolate* iso = obj->GetIsolate();
+        v8::HandleScope hs(iso);
         
         v8::Local<v8::String> key;
         if (!v8::String::NewFromUtf8(iso, name.c_str()).ToLocal(&key)) {
@@ -77,6 +80,7 @@ namespace t4ext {
     bool v8GetProp(const v8::Local<v8::Object>& obj, const utils::String& name, v8::Local<v8::Value>* out) {
         if (obj.IsEmpty()) return false;
         v8::Isolate* iso = obj->GetIsolate();
+        v8::EscapableHandleScope hs(iso);
 
         v8::Local<v8::String> key;
         if (!v8::String::NewFromUtf8(iso, name.c_str()).ToLocal(&key)) {
@@ -85,10 +89,16 @@ namespace t4ext {
             return false;
         }
 
-        return obj->Get(iso->GetCurrentContext(), key).ToLocal(out);
+        if (obj->Get(iso->GetCurrentContext(), key).ToLocal(out)) {
+            hs.Escape(*out);
+            return true;
+        }
+
+        return false;
     }
 
     void v8Throw(v8::Isolate* isolate, const char* fmt, ...) {
+        v8::HandleScope hs(isolate);
         char msg[1024] = { 0 };
         va_list ap;
         va_start(ap, fmt);

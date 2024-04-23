@@ -92,9 +92,9 @@ namespace t4ext {
     //
     // Actor creation hook
     //
-    CActor* (CGame::*CreateActor_orig)(CLevel*, const char*, const char*, const char*);
-    CActor* __fastcall CreateActor_detour(CGame* game, void * _EDX, CLevel* level, const char* name, const char* type, const char* mtfPath) {
-        CActor* actor = (game->*CreateActor_orig)(level, name, type, mtfPath);
+    CActor* (CLevel::*CreateActor_orig)(const char*, const char*);
+    CActor* __fastcall CreateActor_detour(CLevel* level, void * _EDX, const char* type, const char* path) {
+        CActor* actor = (level->*CreateActor_orig)(type, path);
         gClient::Get()->onActorCreated(actor);
         return actor;
     }
@@ -130,18 +130,37 @@ namespace t4ext {
     }
 
     //
-    // PeekMessageA
+    // WindowProc
     //
-    BOOL (WINAPI *PeekMessageA_orig)(LPMSG, HWND, UINT, UINT, UINT);
-    BOOL WINAPI PeekMessageA_detour(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax, UINT wRemoveMsg) {
-        BOOL result = PeekMessageA_orig(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg);
-        gClient::Get()->onPeekMessage(lpMsg, hWnd);
+    BOOL (WINAPI *WindowProc_orig)(HWND, UINT, WPARAM, LPARAM);
+    BOOL WINAPI WindowProc_detour(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+        Client* client = gClient::Get();
+        BOOL result = E_FAIL;
+        switch (uMsg) {
+            case WM_KEYUP:
+            case WM_KEYDOWN:
+            case WM_KEYLAST:
+            case WM_CHAR:
+            case WM_LBUTTONDOWN:
+            case WM_RBUTTONDOWN:
+            case WM_LBUTTONUP:
+            case WM_RBUTTONUP:
+            case WM_LBUTTONDBLCLK:
+            case WM_RBUTTONDBLCLK:
+            case WM_MOUSEMOVE: {
+                if (!client || !client->isGameInputDisabled()) {
+                    result = WindowProc_orig(hWnd, uMsg, wParam, lParam);
+                }
+                break;
+            }
+            default:
+                result = WindowProc_orig(hWnd, uMsg, wParam, lParam);
+        }
+
+        gClient::Get()->onWindowProc(hWnd, uMsg, wParam, lParam);
         return result;
     }
 
-    //
-    // Game input processing
-    //
 
     //
     // Hooks
@@ -170,8 +189,8 @@ namespace t4ext {
         MH_EnableHook((LPVOID)0x00513750);
 
         // Hook actor creation
-        MH_CreateHook((LPVOID)0x00481510, (LPVOID)&CreateActor_detour, (LPVOID*)&CreateActor_orig);
-        MH_EnableHook((LPVOID)0x00481510);
+        MH_CreateHook((LPVOID)0x0050dee0, (LPVOID)&CreateActor_detour, (LPVOID*)&CreateActor_orig);
+        MH_EnableHook((LPVOID)0x0050dee0);
 
         // Hook actor destruction
         MH_CreateHook((LPVOID)0x00522910, (LPVOID)&DestroyActor_detour, (LPVOID*)&DestroyActor_orig);
@@ -185,21 +204,20 @@ namespace t4ext {
         MH_CreateHook((LPVOID)0x005e0f20, (LPVOID)&createWindow_detour, (LPVOID*)&createWindow_orig);
         MH_EnableHook((LPVOID)0x005e0f20);
 
-        // Hook PeekMessageA
-        MH_CreateHook((LPVOID)*(void**)0x0062a224, (LPVOID)&PeekMessageA_detour, (LPVOID*)&PeekMessageA_orig);
-        MH_EnableHook((LPVOID)*(void**)0x0062a224);
+        // Hook WndProc
+        MH_CreateHook((LPVOID)0x005e10d0, (LPVOID)&WindowProc_detour, (LPVOID*)&WindowProc_orig);
+        MH_EnableHook((LPVOID)0x005e10d0);
 
         InstallD3DHooks();
     }
 
     void UninstallHooks() {
         UninstallD3DHooks();
-        
-        MH_RemoveHook((LPVOID)*(void**)0x0062a224);
+        MH_RemoveHook((LPVOID)0x005e10d0);
         MH_RemoveHook((LPVOID)0x005e0f20);
         MH_RemoveHook((LPVOID)0x005e0360);
         MH_RemoveHook((LPVOID)0x00522910);
-        MH_RemoveHook((LPVOID)0x00481510);
+        MH_RemoveHook((LPVOID)0x0050dee0);
         MH_RemoveHook((LPVOID)0x00513750);
         MH_RemoveHook((LPVOID)0x004e0ba0);
         MH_RemoveHook((LPVOID)0x004e0900);

@@ -295,6 +295,7 @@ namespace t4ext {
         fs->bind("type", &FileStatus::type);
         fs->bind("size", &FileStatus::size);
         fs->bind("lastWriteTime", &FileStatus::lastWriteTime);
+        fs->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         //
         // DirectoryEntry
@@ -302,7 +303,8 @@ namespace t4ext {
         de->bind("path", &DirectoryEntry::path)->flags.is_nullable = 0;
         de->bind("name", &DirectoryEntry::name)->flags.is_nullable = 0;
         de->bind("extension", &DirectoryEntry::extension);
-        de->bind("status", &DirectoryEntry::status)->flags.use_v8_accessors = 0;
+        de->bind("status", &DirectoryEntry::status);
+        de->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         //
         // DirectoryEntryType
@@ -438,47 +440,56 @@ namespace t4ext {
         v2f->setFlags(DataType::Flags::HostConstructionNotRequired);
         v2f->bind("x", &utils::vec2f::x);
         v2f->bind("y", &utils::vec2f::y);
+        v2f->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         v3f->setFlags(DataType::Flags::HostConstructionNotRequired);
         v3f->bind("x", &utils::vec3f::x);
         v3f->bind("y", &utils::vec3f::y);
         v3f->bind("z", &utils::vec3f::z);
+        v3f->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         v4f->setFlags(DataType::Flags::HostConstructionNotRequired);
         v4f->bind("x", &utils::vec4f::x);
         v4f->bind("y", &utils::vec4f::y);
         v4f->bind("z", &utils::vec4f::z);
         v4f->bind("w", &utils::vec4f::w);
+        v4f->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         qf->setFlags(DataType::Flags::HostConstructionNotRequired);
         qf->bind("axis", &utils::quatf::axis);
         qf->bind("angle", &utils::quatf::angle);
+        qf->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         v2i->setFlags(DataType::Flags::HostConstructionNotRequired);
         v2i->bind("x", &utils::vec2i::x);
         v2i->bind("y", &utils::vec2i::y);
+        v2i->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         v3i->setFlags(DataType::Flags::HostConstructionNotRequired);
         v3i->bind("x", &utils::vec3i::x);
         v3i->bind("y", &utils::vec3i::y);
         v3i->bind("z", &utils::vec3i::z);
+        v3i->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         v4i->setFlags(DataType::Flags::HostConstructionNotRequired);
         v4i->bind("x", &utils::vec4i::x);
         v4i->bind("y", &utils::vec4i::y);
         v4i->bind("z", &utils::vec4i::z);
         v4i->bind("w", &utils::vec4i::w);
+        v4i->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         m3f->setFlags(DataType::Flags::HostConstructionNotRequired);
         m3f->bind("x", &utils::mat3f::x);
         m3f->bind("y", &utils::mat3f::y);
         m3f->bind("z", &utils::mat3f::z);
+        m3f->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
 
         m4f->setFlags(DataType::Flags::HostConstructionNotRequired);
         m4f->bind("x", &utils::mat4f::x);
         m4f->bind("y", &utils::mat4f::y);
         m4f->bind("z", &utils::mat4f::z);
         m4f->bind("w", &utils::mat4f::w);
+        m4f->getFields().each([](DataTypeField& f){ f.flags.use_v8_accessors = 0; });
     }
 
     void BindBuiltins(IScriptAPI* api) {

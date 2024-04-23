@@ -135,8 +135,7 @@ namespace tsc {
 };
 
 namespace t4ext {
-    TypeScriptCallbackData::TypeScriptCallbackData(const v8::Local<v8::Function>& func) {
-        m_callback.Reset(func->GetIsolate(), func);
+    TypeScriptCallbackData::TypeScriptCallbackData(const v8::Local<v8::Function>& func) : m_callback(func->GetIsolate(), func) {
     }
 
     TypeScriptCallbackData::~TypeScriptCallbackData() {
@@ -161,6 +160,8 @@ namespace t4ext {
     }
 
     TypeScriptAPI::ModuleInfo* TypeScriptAPI::getModule(const utils::String& moduleId, bool doReload) {
+        v8::HandleScope hs(m_isolate);
+        
         auto it = m_modules.find(moduleId);
         if (it != m_modules.end()) {
             ModuleInfo* m = it->second;
@@ -285,6 +286,9 @@ namespace t4ext {
     }
 
     v8::Local<v8::Object> TypeScriptAPI::loadModule(ModuleInfo* module) {
+        v8::EscapableHandleScope hs(m_isolate);
+        v8::Local<v8::Context> ctx = m_context.Get(m_isolate);
+        
         log("Loading module '%s'", module->id.c_str());
 
         if (module->exports.IsEmpty()) {
@@ -293,7 +297,7 @@ namespace t4ext {
             if (module->factory.IsEmpty()) {
                 warn("Nothing to do for '%s', it's not a module. It did execute though. This is likely not an issue.", module->id.c_str());
                 module->exports.Reset(m_isolate, exports);
-                return exports;
+                return hs.Escape(exports);
             }
 
             utils::Array<v8::Local<v8::Value>> deps;
@@ -331,7 +335,7 @@ namespace t4ext {
                 tc.SetVerbose(true);
                 
                 v8::Local<v8::Function> factory = module->factory.Get(m_isolate);
-                factory->Call(m_context, m_context->Global(), deps.size(), deps.data());
+                factory->Call(ctx, ctx->Global(), deps.size(), deps.data());
 
                 if (tc.HasCaught()) {
                     error("In module '%s'", module->id.c_str());
@@ -340,22 +344,20 @@ namespace t4ext {
             }
 
             module->exports.Reset(m_isolate, exports);
-            return exports;
+            return hs.Escape(exports);
         }
 
-        return module->exports.Get(m_isolate);
+        return hs.Escape(module->exports.Get(m_isolate));
     }
     
     void TypeScriptAPI::unloadModule(ModuleInfo* m) {
         log("Unloading module '%s'", m->id.c_str());
 
         if (!m->exports.IsEmpty()) {
-            m->exports.SetWeak();
             m->exports.Reset();
         }
 
         if (!m->factory.IsEmpty()) {
-            m->factory.SetWeak();
             m->factory.Reset();
         }
 
@@ -382,8 +384,15 @@ namespace t4ext {
         return m_isolate;
     }
 
-    v8::Local<v8::Context>& TypeScriptAPI::getContext() {
-        return m_context;
+    v8::Local<v8::Context> TypeScriptAPI::getContext() {
+        return m_context.Get(m_isolate);
+    }
+    
+    DataTypeData* TypeScriptAPI::getTypeData(DataType* type) {
+        auto it = m_typeData.find(type);
+        if (it == m_typeData.end()) return nullptr;
+
+        return it->second;
     }
 
     bool TypeScriptAPI::initialize() {
@@ -406,7 +415,7 @@ namespace t4ext {
 
         v8::Isolate::CreateParams cp;
         cp.array_buffer_allocator = m_arrayBufferAllocator;
-        cp.constraints.ConfigureDefaultsFromHeapSize(0, 2147483648);
+        cp.constraints.ConfigureDefaultsFromHeapSize(0, 8 * 1024 * 1024);
 
         m_isolate = v8::Isolate::New(cp);
         if (!m_isolate) {
@@ -417,10 +426,17 @@ namespace t4ext {
             return false;
         }
 
+        m_isolate->AddNearHeapLimitCallback(+[](void* data, size_t initialHeapSize, size_t currentHeapSize) {
+            f32 currentSzMb = f32(currentHeapSize) / 1024.0f / 1024.0f;
+            f32 nextSzMb = currentSzMb + 1.0f;
+            gClient::Get()->warn("v8 Nearing heap size limit. Growing from %.2f MB to %.2f MB", currentSzMb, nextSzMb);
+            return currentHeapSize + (1024 * 1024);
+        }, nullptr);
+
         m_didInitialize = true;
         return true;
     }
-    
+
     bool TypeScriptAPI::commitBindings() {
         log("Generating globals.d.ts...");
         if (!generateDefs()) return false;
@@ -436,9 +452,55 @@ namespace t4ext {
             tsc::StartCompilerProcess(this);
         });
 
+        {
+            v8::Locker locker(m_isolate);
+            v8::Isolate::Scope isolate_scope(m_isolate);
+            v8::HandleScope hs(m_isolate);
+            v8::Local<v8::Context> context = v8::Context::New(m_isolate);
+            m_context.Reset(m_isolate, context);
+            setupContext();
+
+            // Create object templates
+            for (auto& it : m_typeMap) {
+                DataType* tp = it.second;
+                if (tp->isPrimitive() || tp->isArray() || tp->isFunction()) continue;
+                v8::EscapableHandleScope ehs(m_isolate);
+
+                v8::Local<v8::ObjectTemplate> templ = v8::ObjectTemplate::New(m_isolate);
+                templ->SetInternalFieldCount(2); // engine object ptr, DataType ptr
+                
+                utils::Array<DataTypeField>& fields = tp->getFields();
+                for (DataTypeField& f : fields) {
+                    if (f.flags.use_v8_accessors == 0) {
+                        // will be manually added to the object at conversion time
+                        continue;
+                    }
+
+                    v8::Local<v8::External> fieldData = v8::External::New(m_isolate, &f);
+                    v8::Local<v8::FunctionTemplate> getter = v8::FunctionTemplate::New(m_isolate, v8Getter, fieldData);
+                    v8::Local<v8::FunctionTemplate> setter;
+                    if (f.flags.is_readonly == 0) setter = v8::FunctionTemplate::New(m_isolate, v8Setter, fieldData);
+
+                    templ->SetAccessorProperty(v8Str(m_isolate, f.name), getter, setter);
+                }
+                
+                utils::Array<Function*>& methods = tp->getMethods();
+                for (Function* m : methods) {
+                    v8::Local<v8::External> methodData = v8::External::New(m_isolate, m);
+                    templ->Set(v8Str(m_isolate, m->getName()), v8::FunctionTemplate::New(m_isolate, HostCallHandler, methodData));
+                }
+
+                templ->Set(v8Str(m_isolate, "__refresh"), v8::FunctionTemplate::New(m_isolate, ObjectRefresher));
+
+                DataTypeData* d = new DataTypeData;
+                d->templ.Reset(m_isolate, ehs.Escape(templ));
+                m_typeData[tp] = d;
+            }
+        }
+
         return true;
     }
-    
+
     bool TypeScriptAPI::shutdown() {
         if (!m_didInitialize) return true;
 
@@ -455,12 +517,19 @@ namespace t4ext {
             delete it->second;
         }
 
+        for (auto& it : m_typeData) {
+            it.second->templ.Reset();
+            delete it.second;
+        }
+
         m_eventMutex.lock();
         for (IEventType* tp : m_eventTypes) delete tp;
         for (IEvent* e : m_events) delete e;
         m_eventTypes.clear();
         m_events.clear();
         m_eventMutex.unlock();
+
+        m_context.Reset();
         
         v8::V8::Dispose();
         v8::V8::DisposePlatform();
@@ -504,11 +573,9 @@ namespace t4ext {
         {
             v8::Locker locker(m_isolate);
             v8::Isolate::Scope isolate_scope(m_isolate);
-            v8::HandleScope handle_scope(m_isolate);
-            m_context = v8::Context::New(m_isolate);
-            v8::Context::Scope context_scope(m_context);
-
-            setupContext();
+            v8::HandleScope hs(m_isolate);
+            v8::Local<v8::Context> context = m_context.Get(m_isolate);
+            v8::Context::Scope cs(context);
 
             ModuleInfo* mainModule = getModule("./internal/entry");
             if (mainModule) {
@@ -523,14 +590,33 @@ namespace t4ext {
         return didSucceed;
     }
 
+    bool TypeScriptAPI::handleEvents() {
+        bool result = true;
+
+        {
+            v8::Locker locker(m_isolate);
+            v8::Isolate::Scope isolate_scope(m_isolate);
+            v8::HandleScope handle_scope(m_isolate);
+            v8::Local<v8::Context> context = m_context.Get(m_isolate);
+            v8::Context::Scope cs(context);
+
+            result = IScriptAPI::handleEvents();
+        }
+
+        return result;
+    }
+
     void TypeScriptAPI::scriptException(const utils::String& msg) {
         v8Throw(m_isolate, msg.c_str());
     }
 
     void TypeScriptAPI::logException(const v8::TryCatch& tc) {
+        v8::HandleScope hs(m_isolate);
+        v8::Local<v8::Context> ctx = m_context.Get(m_isolate);
+
         utils::String traceStr;
         v8::Local<v8::Value> stackTrace;
-        if (tc.StackTrace(m_context).ToLocal(&stackTrace) && stackTrace->IsString() && stackTrace.As<v8::String>()->Length() > 0) {
+        if (tc.StackTrace(ctx).ToLocal(&stackTrace) && stackTrace->IsString() && stackTrace.As<v8::String>()->Length() > 0) {
             traceStr = *v8::String::Utf8Value(m_isolate, stackTrace);
         }
 
@@ -541,18 +627,16 @@ namespace t4ext {
             utils::String msgStr = *v8::String::Utf8Value(m_isolate, msg->Get());
             utils::String fileStr;
             utils::String lineStr;
-            i32 lineNum = msg->GetLineNumber(m_context).FromMaybe(-1);
-            i32 colStart = msg->GetStartColumn(m_context).FromMaybe(-1);
-            i32 colEnd = msg->GetEndColumn(m_context).FromMaybe(-1);
+            i32 lineNum = msg->GetLineNumber(ctx).FromMaybe(-1);
+            i32 colStart = msg->GetStartColumn(ctx).FromMaybe(-1);
+            i32 colEnd = msg->GetEndColumn(ctx).FromMaybe(-1);
 
             v8::String::Utf8Value file(m_isolate, msg->GetScriptOrigin().ResourceName());
             fileStr = *file;
             v8::Local<v8::String> lineStrV;
-            if (msg->GetSourceLine(m_context).ToLocal(&lineStrV)) {
+            if (msg->GetSourceLine(ctx).ToLocal(&lineStrV)) {
                 lineStr = *v8::String::Utf8Value(m_isolate, lineStrV);
             }
-
-            // error(msgStr);
 
             if (lineStr.size() > 0) {
                 utils::String prefix;
@@ -581,23 +665,25 @@ namespace t4ext {
     }
 
     bool TypeScriptAPI::isReady() {
-        return m_isReady;
+        return m_isReady && !m_shouldTerminate;
     }
 
     bool TypeScriptAPI::execute(const v8::Local<v8::String>& source) {
+        v8::Locker locker(m_isolate);
+        v8::Isolate::Scope isolate_scope(m_isolate);
+        v8::HandleScope handle_scope(m_isolate);
+        v8::Local<v8::Context> context = m_context.Get(m_isolate);
+        v8::Context::Scope cs(context);
+
         bool didSucceed = true;
 
         v8::TryCatch tc(m_isolate);
         tc.SetVerbose(true);
         v8::Local<v8::Script> script;
-        if (!v8::Script::Compile(m_context, source).ToLocal(&script)) {
+        if (!v8::Script::Compile(context, source).ToLocal(&script)) {
             if (tc.HasCaught()) {
                 error("Failed to compile script");
                 logException(tc);
-
-                log("For debug purposes, the script source was:");
-                v8::String::Utf8Value src(m_isolate, source);
-                printf("%s", *src);
                 didSucceed = false;
             } else {
                 error("Failed to compile script, or failed to get compiled script");
@@ -605,7 +691,7 @@ namespace t4ext {
             didSucceed = false;
         } else {
             if (!tc.HasCaught()) {
-                script->Run(m_context);
+                script->Run(context);
                 if (tc.HasCaught()) {
                     error("Caught exception while running script");
                     logException(tc);
@@ -622,12 +708,15 @@ namespace t4ext {
     }
 
     void TypeScriptAPI::setupContext() {
-        v8::Local<v8::Object> global = m_context->Global();
-        v8::Local<v8::String> key;
+        v8::Locker locker(m_isolate);
+        v8::Isolate::Scope isolate_scope(m_isolate);
+        v8::HandleScope handle_scope(m_isolate);
+        v8::Local<v8::Context> context = m_context.Get(m_isolate);
+        v8::Context::Scope cs(context);
+        v8::Local<v8::Object> global = context->Global();
 
         v8SetProp(global, "global", global);
         
-        key = v8::String::NewFromUtf8Literal(m_isolate, "console");
         v8::Local<v8::Value> consoleV;
         if (v8GetProp(global, "console", &consoleV)) {
             v8::Local<v8::Object> console = consoleV.As<v8::Object>();
@@ -673,7 +762,7 @@ namespace t4ext {
 
         for (ScriptNamespace* ns : m_namespaces) {
             v8::Local<v8::Object> nsObj;
-            if (ns->name.size() == 0) nsObj = m_context->Global();
+            if (ns->name.size() == 0) nsObj = context->Global();
             else if (ns->name == "t4") nsObj = t4;
             else nsObj = v8::Object::New(m_isolate);
 

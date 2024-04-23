@@ -31,51 +31,15 @@ namespace t4ext {
         (this->*fn)(isVisible ? 1 : 0);
     }
 
-    void CActor::setCollides(undefined4 value) {
-        collides = value;
+    bool CActor::isVisible() {
+        return (flags0 & 0b00000000000000000000000001000000) == 1;
     }
-
-    void CActor::setTouches(undefined4 value) {
-        touches = value;
-    }
-
-    void CActor::setIgnores(undefined4 value) {
-        ignores = value;
-    }
-
-    CLevel* CActor::getLevel() {
-        return level;
-    }
-
-    const char* CActor::getName() {
-        return actorName;
-    }
-
-    const char* CActor::getTypeName() {
-        return typeName;
-    }
-
+    
     CActor* CActor::getPrev() {
         return prev;
     }
 
     CActor* CActor::getNext() {
         return next;
-    }
-
-    utils::vec4f& CActor::getPosition() {
-        return position;
-    }
-
-    utils::vec3f& CActor::getScale() {
-        return scale;
-    }
-
-    utils::quatf& CActor::getRotation() {
-        return rotation;
-    }
-
-    utils::mat4f& CActor::getTransform() {
-        return transform;
     }
 };

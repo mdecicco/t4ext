@@ -51,4 +51,8 @@ namespace t4ext {
     );
     void specifyThisPointer(v8::Local<v8::Object>& onObject, void* thisPointer, DataType* type, v8::Isolate* isolate);
     void* extractThisPointer(const v8::Local<v8::Object>& maybeThisObj, v8::Isolate* isolate, DataType** outDataType = nullptr);
+
+    void v8Getter(const v8::FunctionCallbackInfo<v8::Value>& args);
+    void v8Setter(const v8::FunctionCallbackInfo<v8::Value>& args);
+    void ObjectRefresher(const v8::FunctionCallbackInfo<v8::Value>& args);
 };

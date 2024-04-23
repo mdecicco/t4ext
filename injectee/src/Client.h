@@ -28,7 +28,7 @@ namespace t4ext {
             IScriptAPI* getAPI();
 
             void onWindowCreated(HWND window);
-            void onPeekMessage(LPMSG msg, HWND window);
+            void onWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
             void onBeforeUpdate();
             void onBeforeRender();
             void onDeviceInit(d3dDevice* device);
@@ -38,6 +38,9 @@ namespace t4ext {
             void onActorDestroyed(CActor* actor);
             void onLevelCreated(CLevel* level);
             void onLevelDestroyed(CLevel* level);
+            bool isGameInputDisabled();
+            void setGameInputDisabled(bool isDisabled);
+            const utils::Array<CActor*>& getLiveActors();
 
             virtual void onLogMessage(utils::LOG_LEVEL level, const utils::String& scope, const utils::String& message);
     
@@ -47,7 +50,8 @@ namespace t4ext {
             TypeScriptAPI* m_scriptAPI;
             utils::Timer m_runTime;
             utils::Thread m_scriptThread;
-            bool m_alreadyPeekedThisFrame;
+            utils::Array<CActor*> m_liveActors;
+            bool m_gameInputDisabled;
     };
 
     using gClient = utils::Singleton<Client>;
