@@ -5,6 +5,7 @@
 #include <events/ActorCreate.h>
 #include <events/ActorDestroy.h>
 #include <events/LevelCreate.h>
+#include <events/LevelSpawn.h>
 #include <events/LevelDestroy.h>
 
 #include <utils/Array.hpp>
@@ -18,25 +19,24 @@ namespace t4ext {
         return *(CGame**)0x006b52b4;
     }
     
-    utils::Array<CLevel*> CGame::getLevels() {
-        utils::Array<CLevel*> ret;
+    utils::Array<CLevel*>* CGame::getLevels() {
+        if (levels.size() == 0) return nullptr;
 
-        if (levelListBegin) {
-            CLevel** l = levelListBegin;
-            while (l != levelListEnd) {
-                if (*l) {
-                    ret.push(*l);
-                }
+        utils::Array<CLevel*>* ret = new utils::Array<CLevel*>();
 
-                l++;
-            }
+        u32 sz = levels.size();
+        for (u32 i = 0;i < sz;i++) {
+            ret->push(levels[i]);
         }
 
         return ret;
     }
     
     CLevel* CGame::getCurrentLevel() {
-        return nullptr;
+        if (levels.size() == 0) return nullptr;
+
+        // todo: this is just an assumption
+        return levels[0];
     }
 
     u32 CGame::addUpdateListener(t4ext::Callback<void>& callback) {
@@ -85,6 +85,14 @@ namespace t4ext {
 
     void CGame::removeLevelDestroyListener(u32 id) {
         utils::Singleton<LevelDestroyEventType>::Get()->removeListener(id);
+    }
+
+    u32 CGame::addLevelSpawnListener(t4ext::Callback<void, CLevel*>& callback) {
+        return utils::Singleton<LevelSpawnEventType>::Get()->createListener(callback);
+    }
+
+    void CGame::removeLevelSpawnListener(u32 id) {
+        utils::Singleton<LevelSpawnEventType>::Get()->removeListener(id);
     }
 
     void CGame::disableInput() {

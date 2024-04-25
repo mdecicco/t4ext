@@ -1,6 +1,7 @@
 #pragma once
 #include <types.h>
 #include <utils/Math.hpp>
+#include <script/IScriptAPI.h>
 
 namespace t4ext {
     class CLevel;
@@ -28,7 +29,7 @@ namespace t4ext {
             virtual void method0_0x0();
             virtual void method1_0x4();
             virtual void method2_0x8();
-            virtual void method3_0xc();
+            virtual void processInput();
             virtual void method4_0x10();
             virtual void method5_0x14();
             virtual void method6_0x18();
@@ -57,7 +58,7 @@ namespace t4ext {
             virtual void method29_0x74();
             virtual void method30_0x78();
             virtual void method31_0x7c();
-            virtual void method32_0x80();
+            virtual void maybeOnCollide(CActor* collisionWith, i32 p2, i32* p3);
             virtual void method33_0x84();
             virtual void method34_0x88();
             virtual void method35_0x8c();
@@ -111,7 +112,7 @@ namespace t4ext {
             virtual void method83_0x14c();
             virtual void method84_0x150();
             virtual void method85_0x154();
-            virtual void method86_0x158();
+            virtual void destructor();
             virtual void method87_0x15c();
             virtual void method88_0x160();
             virtual void method89_0x164();
@@ -125,6 +126,8 @@ namespace t4ext {
             bool isVisible();
             CActor* getPrev();
             CActor* getNext();
+            u32 addCollisionListener(CActor* whenCollidingWith, Callback<void, CActor*, CActor*>& cb);
+            void removeCollisionListener(u32 listenerId);
 
             undefined4 field_0x4;
             undefined4 field_0x8;
@@ -134,7 +137,7 @@ namespace t4ext {
             CActor* prev;
             undefined field_0x1C;
             undefined field_0x1D;
-            undefined field_0x1E;
+            bool isEnabled;
             undefined field_0x1F;
             undefined field_0x20;
             undefined field_0x21;
@@ -245,5 +248,12 @@ namespace t4ext {
             undefined4 inputRelated;
             undefined4 field_0x214;
             undefined4 field_0x218;
+            undefined4 field_0x21c;
+            undefined4 field_0x220;
+            undefined4 field_0x224;
+            undefined4 field_0x228;
+            undefined4 field_0x22c;
+            undefined4 field_0x230;
     };
+    static_assert(sizeof(CActor) == 0x234, "sizeof(CActor) != 0x234");
 };

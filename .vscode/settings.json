@@ -13,6 +13,7 @@
         "chrono": "cpp",
         "xtr1common": "cpp",
         "filesystem": "cpp",
-        "xstring": "cpp"
+        "xstring": "cpp",
+        "vector": "cpp"
     }
 }

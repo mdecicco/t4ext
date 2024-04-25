@@ -1,13 +1,17 @@
 #pragma once
 #include <types.h>
-#include <utils/Array.h>
 #include <script/IScriptAPI.h>
+#include <core/Vector.hpp>
+
+#include <utils/Array.h>
 
 namespace t4ext {
     class CLevel;
     class CActor;
     class CActorTypeList;
 
+    // Actually a Turok4Game, but CGame is never used directly and
+    // I don't feel like representing the inheritance or renaming this
     class CGame {
         public:
             virtual void method1_0x4();
@@ -60,7 +64,7 @@ namespace t4ext {
             virtual void method48_0xc0();
             virtual void method49_0xc4();
 
-            utils::Array<CLevel*> getLevels();
+            utils::Array<CLevel*>* getLevels();
             CLevel* getCurrentLevel();
             
             u32 addUpdateListener(t4ext::Callback<void>& callback);
@@ -73,6 +77,8 @@ namespace t4ext {
             void removeActorDestroyListener(u32 id);
             u32 addLevelCreateListener(t4ext::Callback<void, CLevel*>& callback);
             void removeLevelCreateListener(u32 id);
+            u32 addLevelSpawnListener(t4ext::Callback<void, CLevel*>& callback);
+            void removeLevelSpawnListener(u32 id);
             u32 addLevelDestroyListener(t4ext::Callback<void, CLevel*>& callback);
             void removeLevelDestroyListener(u32 id);
             void disableInput();
@@ -84,9 +90,7 @@ namespace t4ext {
             undefined4 field2_0x8;
             i32 field3_0xc;
             undefined4 field4_0x10;
-            CLevel **levelListBegin;
-            CLevel **levelListEnd;
-            undefined4 field7_0x1c;
+            Vector<CLevel*> levels;
             undefined4 field8_0x20;
             undefined4 field9_0x24;
             undefined4 field10_0x28;
@@ -519,4 +523,5 @@ namespace t4ext {
             undefined field437_0x1256;
             undefined field438_0x1257;
     };
+    static_assert(sizeof(CGame) == 0x1258, "sizeof(CGame) != 0x1258");
 };

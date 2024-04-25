@@ -15,6 +15,16 @@ namespace t4ext {
         return true;
     }
 
+    void collectFields(DataType* tp, utils::Array<DataTypeField>& fields) {
+        utils::Array<DataType*>& bases = tp->getBases();
+        for (DataType* b : bases) collectFields(b, fields);
+        
+        utils::Array<DataTypeField>& ownFields = tp->getFields();
+        for (DataTypeField& f : ownFields) {
+            fields.push(f);
+        }
+    }
+
     bool convertToV8(
         void* hostObj,
         v8::Local<v8::Value>* out,
@@ -113,25 +123,51 @@ namespace t4ext {
 
         //v8::Local<v8::Object> obj = v8::Object::New(isolate);
         specifyThisPointer(obj, hostObj, tp, isolate);
+        
+        if (tp->getBases().size() == 0) {
+            // If there's no bases, just do it here to avoid creating an array
+            utils::Array<DataTypeField>& fields = tp->getFields();
 
-        utils::Array<DataTypeField>& fields = tp->getFields();
-        for (DataTypeField& f : fields) {
-            if (f.flags.use_v8_accessors == 1) {
-                // was exposed via getter/setter in the template
-                continue;
+            for (DataTypeField& f : fields) {
+                if (f.flags.use_v8_accessors == 1) {
+                    // was exposed via getter/setter in the template
+                    continue;
+                }
+
+                v8::Local<v8::Value> prop;
+
+                if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
+                    const char* op = isPtr ? "->" : ".";
+                    if (selfField) failurePath = op + f.name + failurePath;
+                    else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
+                    
+                    return false;
+                }
+
+                v8SetProp(obj, f.name, prop);
             }
+        } else {
+            utils::Array<DataTypeField> fields;
+            collectFields(tp, fields);
 
-            v8::Local<v8::Value> prop;
+            for (DataTypeField& f : fields) {
+                if (f.flags.use_v8_accessors == 1) {
+                    // was exposed via getter/setter in the template
+                    continue;
+                }
 
-            if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
-                const char* op = isPtr ? "->" : ".";
-                if (selfField) failurePath = op + f.name + failurePath;
-                else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
-                
-                return false;
+                v8::Local<v8::Value> prop;
+
+                if (!convertToV8((u8*)hostObj + f.offset, &prop, f.type, f.flags.is_pointer, isolate, failurePath, &f)) {
+                    const char* op = isPtr ? "->" : ".";
+                    if (selfField) failurePath = op + f.name + failurePath;
+                    else failurePath = utils::String::Format("(%s @ 0x%X)%s%s", tp->getName().c_str(), hostObj, op, failurePath.c_str());
+                    
+                    return false;
+                }
+
+                v8SetProp(obj, f.name, prop);
             }
-
-            v8SetProp(obj, f.name, prop);
         }
 
         *out = hs.Escape(obj);
@@ -466,20 +502,41 @@ namespace t4ext {
         }
 
         v8::Local<v8::Object> obj = in.As<v8::Object>();
-        utils::Array<DataTypeField>& fields = tp->getFields();
         v8::Local<v8::Context> ctx = isolate->GetCurrentContext();
-        for (DataTypeField& f : fields) {
-            v8::Local<v8::Value> prop;
-            if (!v8GetProp(obj, f.name, &prop)) {
-                failureReason = utils::String::Format("Expected an object similar to type '%s', but property '%s' was missing", tp->getName().c_str(), f.name.c_str());
-                return false;
-            }
+        if (tp->getBases().size() == 0) {
+            // If there's no bases, just do it here to avoid creating an array
+            utils::Array<DataTypeField>& fields = tp->getFields();
+            for (DataTypeField& f : fields) {
+                v8::Local<v8::Value> prop;
+                if (!v8GetProp(obj, f.name, &prop)) {
+                    failureReason = utils::String::Format("Expected an object similar to type '%s', but property '%s' was missing", tp->getName().c_str(), f.name.c_str());
+                    return false;
+                }
 
-            void* fieldPtr = (u8*)objStorage + f.offset;
-            if (!convertFromV8((void**)fieldPtr, prop, f.type, f.flags.is_pointer, outAllocs, isolate, failurePath, failureReason, selfField)) {
-                if (selfField) failurePath = "." + f.name + failurePath;
-                else failurePath = utils::String::Format("value.%s", failurePath.c_str());
-                return false;
+                void* fieldPtr = (u8*)objStorage + f.offset;
+                if (!convertFromV8((void**)fieldPtr, prop, f.type, f.flags.is_pointer, outAllocs, isolate, failurePath, failureReason, selfField)) {
+                    if (selfField) failurePath = "." + f.name + failurePath;
+                    else failurePath = utils::String::Format("value.%s", failurePath.c_str());
+                    return false;
+                }
+            }
+        } else {
+            utils::Array<DataTypeField> fields;
+            collectFields(tp, fields);
+
+            for (DataTypeField& f : fields) {
+                v8::Local<v8::Value> prop;
+                if (!v8GetProp(obj, f.name, &prop)) {
+                    failureReason = utils::String::Format("Expected an object similar to type '%s', but property '%s' was missing", tp->getName().c_str(), f.name.c_str());
+                    return false;
+                }
+
+                void* fieldPtr = (u8*)objStorage + f.offset;
+                if (!convertFromV8((void**)fieldPtr, prop, f.type, f.flags.is_pointer, outAllocs, isolate, failurePath, failureReason, selfField)) {
+                    if (selfField) failurePath = "." + f.name + failurePath;
+                    else failurePath = utils::String::Format("value.%s", failurePath.c_str());
+                    return false;
+                }
             }
         }
 

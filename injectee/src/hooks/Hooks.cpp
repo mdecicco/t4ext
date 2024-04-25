@@ -20,15 +20,12 @@ namespace t4ext {
     undefined4 FUN_005c0760_detour(const char* fmt, ...) {
         va_list ap;
         va_start(ap, fmt);
-        i32 count = 0;
+        char buf[2048] = { 0 };
+        i32 count = vsnprintf(buf, 2048, fmt, ap);
         
-        if constexpr (mute_game_logs) {
-            // not sure if anyone actually uses the output of printf but just in case
-            char buf[2048] = { 0 };
-            count = vsnprintf(buf, 2048, fmt, ap);
-        } else {
-            printf("[Game] ");
-            count = vprintf(fmt, ap);
+        if constexpr (!mute_game_logs) {
+            if (buf[count - 1] == '\n') buf[count - 1] = 0;
+            gClient::Get()->onGameLog(buf);
         }
         
         va_end(ap);
@@ -59,10 +56,20 @@ namespace t4ext {
     //
     // CLevel creation hook
     //
-    CLevel* (CLevel::*ConstructLevel_orig)(const char* p1);
+    CLevel* (CLevel::*ConstructLevel_orig)(const char*);
     CLevel* __fastcall ConstructLevel_detour(CLevel* level, void* _EDX, const char* p1) {
         (level->*ConstructLevel_orig)(p1);
         gClient::Get()->onLevelCreated(level);
+        return level;
+    }
+
+    //
+    // CLevel spawnAsActor hook
+    //
+    CLevel* (CLevel::*spawnLevelAsActor_orig)(i32);
+    CLevel* __fastcall spawnLevelAsActor_detour(CLevel* level, void* _EDX, i32 p1) {
+        (level->*spawnLevelAsActor_orig)(p1);
+        gClient::Get()->onLevelSpawned(level);
         return level;
     }
 
@@ -97,6 +104,15 @@ namespace t4ext {
         CActor* actor = (level->*CreateActor_orig)(type, path);
         gClient::Get()->onActorCreated(actor);
         return actor;
+    }
+
+    //
+    // Actor added to level hook
+    //
+    void (CLevel::*LevelAddActor_orig)(CActor*, i32);
+    void __fastcall LevelAddActor_detour(CLevel* level, void * _EDX, CActor* actor, i32 p2) {
+        (level->*LevelAddActor_orig)(actor, p2);
+        gClient::Get()->onActorAddedToLevel(level, actor);
     }
 
     //
@@ -161,6 +177,15 @@ namespace t4ext {
         return result;
     }
 
+    //
+    // Actor collisions
+    //
+    void (CActor::*onActorCollision_orig)(CActor*, i32, i32*);
+    void __fastcall onActorCollision_detour(CActor* self, void* _EDX, CActor* collidedWith, i32 p1, i32* p2) {
+        (self->*onActorCollision_orig)(collidedWith, p1, p2);
+        gClient::Get()->onActorCollision(self, collidedWith);
+    }
+
 
     //
     // Hooks
@@ -181,6 +206,14 @@ namespace t4ext {
         // Hook level creation
         MH_CreateHook((LPVOID)0x004e0900, (LPVOID)&ConstructLevel_detour, (LPVOID*)&ConstructLevel_orig);
         MH_EnableHook((LPVOID)0x004e0900);
+
+        // Hook level spawn
+        MH_CreateHook((LPVOID)0x00511ca0, (LPVOID)&spawnLevelAsActor_detour, (LPVOID*)&spawnLevelAsActor_orig);
+        MH_EnableHook((LPVOID)0x00511ca0);
+
+        // Hook actor added to level
+        MH_CreateHook((LPVOID)0x00511410, (LPVOID)&LevelAddActor_detour, (LPVOID*)&LevelAddActor_orig);
+        MH_EnableHook((LPVOID)0x00511410);
 
         // Hook level destruction
         MH_CreateHook((LPVOID)0x004e0ba0, (LPVOID)&DestroyT4Level_detour, (LPVOID*)&DestroyT4Level_orig);
@@ -208,11 +241,16 @@ namespace t4ext {
         MH_CreateHook((LPVOID)0x005e10d0, (LPVOID)&WindowProc_detour, (LPVOID*)&WindowProc_orig);
         MH_EnableHook((LPVOID)0x005e10d0);
 
+        // Hook Actor collisions
+        MH_CreateHook((LPVOID)0x00521f80, (LPVOID)&onActorCollision_detour, (LPVOID*)&onActorCollision_orig);
+        MH_EnableHook((LPVOID)0x00521f80);
+
         InstallD3DHooks();
     }
 
     void UninstallHooks() {
         UninstallD3DHooks();
+        MH_RemoveHook((LPVOID)0x00521f80);
         MH_RemoveHook((LPVOID)0x005e10d0);
         MH_RemoveHook((LPVOID)0x005e0f20);
         MH_RemoveHook((LPVOID)0x005e0360);
@@ -220,6 +258,8 @@ namespace t4ext {
         MH_RemoveHook((LPVOID)0x0050dee0);
         MH_RemoveHook((LPVOID)0x00513750);
         MH_RemoveHook((LPVOID)0x004e0ba0);
+        MH_RemoveHook((LPVOID)0x00511410);
+        MH_RemoveHook((LPVOID)0x00511ca0);
         MH_RemoveHook((LPVOID)0x004e0900);
         MH_RemoveHook((LPVOID)0x00484b30);
         MH_RemoveHook((LPVOID)0x005c0760);

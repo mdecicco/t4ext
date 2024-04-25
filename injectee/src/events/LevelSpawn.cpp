@@ -1,43 +1,43 @@
-#include <events/ActorDestroy.h>
+#include <events/LevelSpawn.h>
 #include <script/IScriptAPI.hpp>
-#include <core/CActor.h>
+#include <core/CLevel.h>
 
 #include <Client.h>
 #include <utils/Allocator.hpp>
 #include <utils/Singleton.hpp>
 
 namespace t4ext {
-    ActorDestroyListener::ActorDestroyListener(Callback<void, CActor*>& callback) {
+    LevelSpawnListener::LevelSpawnListener(Callback<void, CLevel*>& callback) {
         m_id = 0;
         m_last = m_next = nullptr;
         m_callback = &callback;
     }
 
-    ActorDestroyListener::~ActorDestroyListener() {
+    LevelSpawnListener::~LevelSpawnListener() {
         delete m_callback;
     }
 
-    void ActorDestroyListener::execute(CActor* actor) {
-        m_callback->call(actor);
+    void LevelSpawnListener::execute(CLevel* level) {
+        m_callback->call(level);
     }
 
-    ActorDestroyEventType::ActorDestroyEventType() {
+    LevelSpawnEventType::LevelSpawnEventType() {
         m_nextListenerId = 1;
         m_listeners = m_lastListener = nullptr;
     }
 
-    ActorDestroyEventType::~ActorDestroyEventType() {
-        ActorDestroyListener* n = m_listeners;
+    LevelSpawnEventType::~LevelSpawnEventType() {
+        LevelSpawnListener* n = m_listeners;
         while (n) {
-            ActorDestroyListener* next = n->m_next;
+            LevelSpawnListener* next = n->m_next;
             delete n;
             n = next;
         }
         m_listeners = m_lastListener = nullptr;
     }
     
-    u32 ActorDestroyEventType::createListener(Callback<void, CActor*>& callback) {
-        ActorDestroyListener* listener = new ActorDestroyListener(callback);
+    u32 LevelSpawnEventType::createListener(Callback<void, CLevel*>& callback) {
+        LevelSpawnListener* listener = new LevelSpawnListener(callback);
         listener->m_id = m_nextListenerId;
 
         if (m_lastListener) {
@@ -52,13 +52,13 @@ namespace t4ext {
         return m_nextListenerId++;
     }
 
-    void ActorDestroyEventType::removeListener(u32 id) {
+    void LevelSpawnEventType::removeListener(u32 id) {
         auto it = m_listenerMap.find(id);
         if (it == m_listenerMap.end()) return;
 
         m_listenerMap.erase(it);
 
-        ActorDestroyListener* n = it->second;
+        LevelSpawnListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_listeners == n) m_listeners = n->m_next;
@@ -67,37 +67,37 @@ namespace t4ext {
         delete n;
     }
 
-    void ActorDestroyEventType::notifyListeners(CActor* actor) {
-        ActorDestroyListener* n = m_listeners;
+    void LevelSpawnEventType::notifyListeners(CLevel* level) {
+        LevelSpawnListener* n = m_listeners;
         while (n) {
-            n->execute(actor);
+            n->execute(level);
             n = n->m_next;
         }
     }
 
-    bool ActorDestroyEventType::canProduceEvents() {
+    bool LevelSpawnEventType::canProduceEvents() {
         // If there are no active timeouts, there is no chance of any
         // timeout events occurring
         return m_listeners != nullptr;
     }
     
-    ActorDestroyEvent* ActorDestroyEventType::createEvent(CActor* actor) {
-        return new ActorDestroyEvent(this, actor);
+    LevelSpawnEvent* LevelSpawnEventType::createEvent(CLevel* level) {
+        return new LevelSpawnEvent(this, level);
     }
     
-    void ActorDestroyEventType::destroyEvent(ActorDestroyEvent* event) {
+    void LevelSpawnEventType::destroyEvent(LevelSpawnEvent* event) {
         delete event;
     }
     
-    ActorDestroyEvent::ActorDestroyEvent(ActorDestroyEventType* tp, CActor* actor) : IEvent(tp) {
-        m_actor = actor;
+    LevelSpawnEvent::LevelSpawnEvent(LevelSpawnEventType* tp, CLevel* level) : IEvent(tp) {
+        m_level = level;
     }
 
-    ActorDestroyEvent::~ActorDestroyEvent() {
+    LevelSpawnEvent::~LevelSpawnEvent() {
     }
 
-    void ActorDestroyEvent::process(IScriptAPI* api) {
-        ((ActorDestroyEventType*)m_type)->notifyListeners(m_actor);
-        ((ActorDestroyEventType*)m_type)->destroyEvent(this);
+    void LevelSpawnEvent::process(IScriptAPI* api) {
+        ((LevelSpawnEventType*)m_type)->notifyListeners(m_level);
+        ((LevelSpawnEventType*)m_type)->destroyEvent(this);
     }
 };

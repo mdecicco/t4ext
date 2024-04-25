@@ -17,9 +17,12 @@
 #include <events/ActorCreate.h>
 #include <events/ActorDestroy.h>
 #include <events/LevelCreate.h>
+#include <events/LevelSpawn.h>
 #include <events/LevelDestroy.h>
 #include <events/Log.h>
 #include <events/Keyboard.h>
+#include <events/ActorCollision.h>
+#include <events/ActorAdded.h>
 
 #include <utils/Singleton.hpp>
 #include <utils/Input.h>
@@ -46,7 +49,8 @@ namespace t4ext {
     static bool keyDown[512] = { false };
     static ImFont* font = nullptr;
 
-    Client::Client() : utils::IWithLogging("Client") {
+    Client::Client() : utils::IWithLogging("Client"), m_gameLogs("Game") {
+        m_gameLogs.subscribeLogger(this);
         m_logFile = nullptr;
 
         char procPath[MAX_PATH] = { 0 };
@@ -79,11 +83,14 @@ namespace t4ext {
         m_scriptAPI->signalTermination();
         m_scriptThread.waitForExit();
 
+        utils::Singleton<ActorAddedEventType>::Destroy();
+        utils::Singleton<ActorCollisionEventType>::Destroy();
         utils::Singleton<LogEventType>::Destroy();
         utils::Singleton<KeyboardEventType>::Destroy();
         utils::Singleton<ActorCreateEventType>::Destroy();
         utils::Singleton<ActorDestroyEventType>::Destroy();
         utils::Singleton<LevelCreateEventType>::Destroy();
+        utils::Singleton<LevelSpawnEventType>::Destroy();
         utils::Singleton<LevelDestroyEventType>::Destroy();
         utils::Singleton<EngineCreateEventType>::Destroy();
         utils::Singleton<EngineRenderEventType>::Destroy();
@@ -122,11 +129,14 @@ namespace t4ext {
         utils::Singleton<EngineRenderEventType>::Create();
         utils::Singleton<EngineCreateEventType>::Create();
         utils::Singleton<LevelDestroyEventType>::Create();
+        utils::Singleton<LevelSpawnEventType>::Create();
         utils::Singleton<LevelCreateEventType>::Create();
         utils::Singleton<ActorDestroyEventType>::Create();
         utils::Singleton<ActorCreateEventType>::Create();
         utils::Singleton<KeyboardEventType>::Create();
         utils::Singleton<LogEventType>::Create();
+        utils::Singleton<ActorCollisionEventType>::Create();
+        utils::Singleton<ActorAddedEventType>::Create();
 
         return true;
     }
@@ -336,6 +346,10 @@ namespace t4ext {
         m_scriptAPI->waitForEventBatchCompletion();
     }
 
+    void Client::onActorAddedToLevel(CLevel* level, CActor* actor) {
+        m_scriptAPI->dispatchEvent(utils::Singleton<ActorAddedEventType>::Get()->createEvent(level, actor));
+    }
+
     void Client::onLevelCreated(CLevel* level) {
         if (!m_scriptAPI->isReady()) return;
         m_scriptAPI->dispatchEvent(utils::Singleton<LevelCreateEventType>::Get()->createEvent(level));
@@ -347,6 +361,10 @@ namespace t4ext {
         m_scriptAPI->waitForEventBatchCompletion();
     }
 
+    void Client::onLevelSpawned(CLevel* level) {
+        m_scriptAPI->dispatchEvent(utils::Singleton<LevelSpawnEventType>::Get()->createEvent(level));
+    }
+
     void Client::onLevelDestroyed(CLevel* level) {
         if (!m_scriptAPI->isReady()) return;
         m_scriptAPI->dispatchEvent(utils::Singleton<LevelDestroyEventType>::Get()->createEvent(level));
@@ -354,6 +372,15 @@ namespace t4ext {
         // Destruction of the level is imminent, sorry! We must execute the event handlers now
         m_scriptAPI->signalEventBatchStart();
         m_scriptAPI->waitForEventBatchCompletion();
+    }
+
+    void Client::onActorCollision(CActor* actorA, CActor* actorB) {
+        if (!m_scriptAPI->isReady()) return;
+        m_scriptAPI->dispatchEvent(utils::Singleton<ActorCollisionEventType>::Get()->createEvent(actorA, actorB));
+    }
+
+    void Client::onGameLog(const char* msg) {
+        m_gameLogs.log(msg);
     }
 
     bool Client::isGameInputDisabled() {

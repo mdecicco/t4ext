@@ -4,6 +4,7 @@
 #include <core/CGame.h>
 #include <core/CLevel.h>
 #include <core/CActor.h>
+#include <core/CCamera.h>
 #include <core/CActorTypeInfo.h>
 
 namespace t4ext {
@@ -12,6 +13,7 @@ namespace t4ext {
     void BindCGame(IScriptAPI* api, DataType* tp);
     void BindCLevel(IScriptAPI* api, DataType* tp);
     void BindCActor(IScriptAPI* api, DataType* tp);
+    void BindCCamera(IScriptAPI* api, DataType* tp);
     void BindActorTypeInfo(IScriptAPI* api, DataType* tp);
     void BindBasicPhysics(IScriptAPI* api, DataType* tp);
     void BindGlobals(IScriptAPI* api);
@@ -27,12 +29,14 @@ namespace t4ext {
             DataType* cg = api->bind<CGame>("CGame");
             DataType* cl = api->bind<CLevel>("CLevel");
             DataType* ca = api->bind<CActor>("CActor");
+            DataType* cc = api->bind<CCamera>("CCamera");
             DataType* bp = api->bind<CBasicPhysics>("CPhysicsInfo");
             DataType* ati = api->bind<CActorTypeInfo>("CActorTypeInfo");
 
             BindCGame(api, cg);
             BindCLevel(api, cl);
             BindCActor(api, ca);
+            BindCCamera(api, cc);
             BindActorTypeInfo(api, ati);
             BindBasicPhysics(api, bp);
             BindGlobals(api);

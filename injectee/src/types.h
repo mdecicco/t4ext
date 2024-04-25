@@ -19,5 +19,6 @@ namespace t4ext {
 	typedef u16               undefined2;
 	typedef u32               undefined4;
 	typedef u64               undefined8;
+	typedef u32               bool32;
 	typedef undefined*        pointer;
 };

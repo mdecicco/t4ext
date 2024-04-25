@@ -1,6 +1,9 @@
 #include <core/CLevel.h>
-#include <utils/Singleton.hpp>
+#include <events/ActorAdded.h>
 #include <Client.h>
+
+#include <utils/Singleton.hpp>
+#include <utils/Array.hpp>
 
 #include <string.h>
 
@@ -31,5 +34,27 @@ namespace t4ext {
         CActor* (__thiscall CLevel::*fn)(i32, const char*, const char*, const utils::vec3f&, i32);
         memcpy(&fn, &addr, 4);
         return (this->*fn)(p1, type, path, pos, p5);
+    }
+
+    utils::Array<CCamera*>* CLevel::getCameras() {
+        if (!camerasBegin) return nullptr;
+        
+        utils::Array<CCamera*>* arr = new utils::Array<CCamera*>();
+
+        CCamera** c = camerasBegin;
+        while (c != camerasEnd) {
+            arr->push(*c);
+            c++;
+        }
+
+        return arr;
+    }
+
+    u32 CLevel::addActorAddedListener(Callback<void, CActor*>& cb) {
+        return utils::Singleton<ActorAddedEventType>::Get()->createListener(this, cb);
+    }
+
+    void CLevel::removeActorAddedListener(u32 listenerId) {
+        utils::Singleton<ActorAddedEventType>::Get()->removeListener(listenerId);
     }
 };

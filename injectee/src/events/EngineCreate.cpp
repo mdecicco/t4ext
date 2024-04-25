@@ -61,7 +61,7 @@ namespace t4ext {
         EngineCreateListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
-        if (m_listeners == n) m_listeners = nullptr;
+        if (m_listeners == n) m_listeners = n->m_next;
         if (m_lastListener == n) m_lastListener = n->m_last;
 
         delete n;

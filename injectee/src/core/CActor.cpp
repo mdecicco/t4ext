@@ -1,4 +1,6 @@
 #include <core/CActor.h>
+#include <events/ActorCollision.h>
+#include <utils/Singleton.hpp>
 
 #include <string.h>
 
@@ -19,7 +21,7 @@ namespace t4ext {
 
     void CActor::setScale(const utils::vec3f& scale) {
         u32 addr = 0x0051a590;
-        void (CActor::*fn)(const utils::vec3f&);
+        void (__thiscall CActor::*fn)(utils::vec3f);
         memcpy(&fn, &addr, 4);
         (this->*fn)(scale);
     }
@@ -41,5 +43,13 @@ namespace t4ext {
 
     CActor* CActor::getNext() {
         return next;
+    }
+
+    u32 CActor::addCollisionListener(CActor* whenCollidingWith, Callback<void, CActor*, CActor*>& cb) {
+        return utils::Singleton<ActorCollisionEventType>::Get()->createListener(this, whenCollidingWith, cb);
+    }
+
+    void CActor::removeCollisionListener(u32 listenerId) {
+        utils::Singleton<ActorCollisionEventType>::Get()->removeListener(listenerId);
     }
 };

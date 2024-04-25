@@ -10,6 +10,7 @@ namespace t4ext {
     void BindCActor(IScriptAPI* api, DataType* tp) {
         tp->bind("getNextActor", &CActor::getNext);
         tp->bind("getPrevActor", &CActor::getPrev);
+        tp->bind("isEnabled", &CActor::isEnabled);
         tp->bind("actorFlags", &CActor::actorFlags);
         tp->bind("type", &CActor::type)->setFlags(DataTypeField::Flags::IsReadOnly);
         tp->bind("unknownFlags0", &CActor::flags0);
@@ -39,5 +40,7 @@ namespace t4ext {
         tp->bind("setScale", &CActor::setScale)->setArgNames({ "scale" });
         tp->bind("setVisibility", &CActor::setVisibility)->setArgNames({ "isVisible" });
         tp->bind("isVisible", &CActor::isVisible);
+        tp->bind("addCollisionListener", &CActor::addCollisionListener)->setArgNames({ "whenCollidingWith", "callback" })->setArgNullable(0, true);
+        tp->bind("removeCollisionListener", &CActor::removeCollisionListener)->setArgNames({ "listenerId" });
     }
 };

@@ -36,8 +36,12 @@ namespace t4ext {
             void onEngineCreated(CGame* engine);
             void onActorCreated(CActor* actor);
             void onActorDestroyed(CActor* actor);
+            void onActorAddedToLevel(CLevel* level, CActor* actor);
             void onLevelCreated(CLevel* level);
+            void onLevelSpawned(CLevel* level);
             void onLevelDestroyed(CLevel* level);
+            void onActorCollision(CActor* actorA, CActor* actorB);
+            void onGameLog(const char* msg);
             bool isGameInputDisabled();
             void setGameInputDisabled(bool isDisabled);
             const utils::Array<CActor*>& getLiveActors();
@@ -51,6 +55,7 @@ namespace t4ext {
             utils::Timer m_runTime;
             utils::Thread m_scriptThread;
             utils::Array<CActor*> m_liveActors;
+            utils::IWithLogging m_gameLogs;
             bool m_gameInputDisabled;
     };
 

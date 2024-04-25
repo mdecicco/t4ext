@@ -1,12 +1,14 @@
 #pragma once
 #include <types.h>
+#include <script/IScriptAPI.h>
 
 #include <utils/Math.hpp>
+#include <utils/Array.h>
 
 namespace t4ext {
     class CActor;
     class CLevel;
-    class EngineObject;
+    class CCamera;
 
     struct UnkClass2 {
         f32 field0_0x0;
@@ -113,6 +115,10 @@ namespace t4ext {
             CActor* addActor(CActor* actor, i32 p2);
             CActor* spawnActor(CActor* actor, i32 p2);
             CActor* spawnActorAtPosition(i32 p1, const char* type, const char* path, const utils::vec3f& pos, i32 p5);
+            utils::Array<CCamera*>* getCameras();
+
+            u32 addActorAddedListener(Callback<void, CActor*>& cb);
+            void removeActorAddedListener(u32 listenerId);
 
             virtual void method_0x0();
 
@@ -131,8 +137,8 @@ namespace t4ext {
             undefined4 field13_0xb4;
             undefined4 field14_0xb8;
             undefined4 field15_0xbc;
-            EngineObject *field16_0xc0;
-            EngineObject *field17_0xc4;
+            CCamera **camerasBegin;
+            CCamera **camerasEnd;
             undefined4 field18_0xc8;
             undefined4 field19_0xcc;
             undefined4 field20_0xd0;
@@ -159,7 +165,7 @@ namespace t4ext {
             undefined4 field41_0x124;
             f32 field42_0x128;
             UnkClass8 *field43_0x12c;
-            undefined4 field44_0x130;
+            CActor* levelActor;
             undefined4 field45_0x134;
             undefined4 field46_0x138;
             undefined4 field47_0x13c;

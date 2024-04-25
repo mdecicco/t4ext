@@ -1,5 +1,7 @@
 #include <script/IScriptAPI.h>
 #include <events/IEvent.h>
+#include <events/Timeout.h>
+#include <utils/Singleton.hpp>
 #include <utils/Timer.h>
 #include <utils/Thread.h>
 
@@ -453,6 +455,8 @@ namespace t4ext {
     }
 
     bool IScriptAPI::handleEvents() {
+        utils::Singleton<TimeoutEventType>::Get()->processTimeouts();
+        
         std::unique_lock<std::mutex> lock(m_batchMutex);
         m_batchCondition.wait_for(lock, std::chrono::seconds(4), [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
         if (m_batchFlag == false || m_shouldTerminate) {

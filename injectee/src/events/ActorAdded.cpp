@@ -1,4 +1,4 @@
-#include <events/ActorDestroy.h>
+#include <events/ActorAdded.h>
 #include <script/IScriptAPI.hpp>
 #include <core/CActor.h>
 
@@ -7,37 +7,38 @@
 #include <utils/Singleton.hpp>
 
 namespace t4ext {
-    ActorDestroyListener::ActorDestroyListener(Callback<void, CActor*>& callback) {
+    ActorAddedListener::ActorAddedListener(CLevel* level, Callback<void, CActor*>& callback) {
         m_id = 0;
         m_last = m_next = nullptr;
+        m_level = level;
         m_callback = &callback;
     }
 
-    ActorDestroyListener::~ActorDestroyListener() {
+    ActorAddedListener::~ActorAddedListener() {
         delete m_callback;
     }
 
-    void ActorDestroyListener::execute(CActor* actor) {
+    void ActorAddedListener::execute(CActor* actor) {
         m_callback->call(actor);
     }
 
-    ActorDestroyEventType::ActorDestroyEventType() {
+    ActorAddedEventType::ActorAddedEventType() {
         m_nextListenerId = 1;
         m_listeners = m_lastListener = nullptr;
     }
 
-    ActorDestroyEventType::~ActorDestroyEventType() {
-        ActorDestroyListener* n = m_listeners;
+    ActorAddedEventType::~ActorAddedEventType() {
+        ActorAddedListener* n = m_listeners;
         while (n) {
-            ActorDestroyListener* next = n->m_next;
+            ActorAddedListener* next = n->m_next;
             delete n;
             n = next;
         }
         m_listeners = m_lastListener = nullptr;
     }
     
-    u32 ActorDestroyEventType::createListener(Callback<void, CActor*>& callback) {
-        ActorDestroyListener* listener = new ActorDestroyListener(callback);
+    u32 ActorAddedEventType::createListener(CLevel* level, Callback<void, CActor*>& callback) {
+        ActorAddedListener* listener = new ActorAddedListener(level, callback);
         listener->m_id = m_nextListenerId;
 
         if (m_lastListener) {
@@ -52,13 +53,13 @@ namespace t4ext {
         return m_nextListenerId++;
     }
 
-    void ActorDestroyEventType::removeListener(u32 id) {
+    void ActorAddedEventType::removeListener(u32 id) {
         auto it = m_listenerMap.find(id);
         if (it == m_listenerMap.end()) return;
 
         m_listenerMap.erase(it);
 
-        ActorDestroyListener* n = it->second;
+        ActorAddedListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_listeners == n) m_listeners = n->m_next;
@@ -67,37 +68,38 @@ namespace t4ext {
         delete n;
     }
 
-    void ActorDestroyEventType::notifyListeners(CActor* actor) {
-        ActorDestroyListener* n = m_listeners;
+    void ActorAddedEventType::notifyListeners(CLevel* level, CActor* actor) {
+        ActorAddedListener* n = m_listeners;
         while (n) {
-            n->execute(actor);
+            if (n->m_level == level) n->execute(actor);
             n = n->m_next;
         }
     }
 
-    bool ActorDestroyEventType::canProduceEvents() {
+    bool ActorAddedEventType::canProduceEvents() {
         // If there are no active timeouts, there is no chance of any
         // timeout events occurring
         return m_listeners != nullptr;
     }
     
-    ActorDestroyEvent* ActorDestroyEventType::createEvent(CActor* actor) {
-        return new ActorDestroyEvent(this, actor);
+    ActorAddedEvent* ActorAddedEventType::createEvent(CLevel* level, CActor* actor) {
+        return new ActorAddedEvent(this, level, actor);
     }
     
-    void ActorDestroyEventType::destroyEvent(ActorDestroyEvent* event) {
+    void ActorAddedEventType::destroyEvent(ActorAddedEvent* event) {
         delete event;
     }
     
-    ActorDestroyEvent::ActorDestroyEvent(ActorDestroyEventType* tp, CActor* actor) : IEvent(tp) {
-        m_actor = actor;
+    ActorAddedEvent::ActorAddedEvent(ActorAddedEventType* tp, CLevel* _level, CActor* _actor) : IEvent(tp) {
+        level = _level;
+        actor = _actor;
     }
 
-    ActorDestroyEvent::~ActorDestroyEvent() {
+    ActorAddedEvent::~ActorAddedEvent() {
     }
 
-    void ActorDestroyEvent::process(IScriptAPI* api) {
-        ((ActorDestroyEventType*)m_type)->notifyListeners(m_actor);
-        ((ActorDestroyEventType*)m_type)->destroyEvent(this);
+    void ActorAddedEvent::process(IScriptAPI* api) {
+        ((ActorAddedEventType*)m_type)->notifyListeners(level, actor);
+        ((ActorAddedEventType*)m_type)->destroyEvent(this);
     }
 };

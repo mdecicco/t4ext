@@ -7,7 +7,6 @@
 namespace t4ext {
     class AppBase {
         public:
-            AppBase();
             virtual ~AppBase();
 
             virtual bool createWindow(const char* className, const char* title, u32 width, u32 height);

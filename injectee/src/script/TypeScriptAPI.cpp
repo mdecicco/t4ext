@@ -146,6 +146,35 @@ namespace t4ext {
         return m_callback.Get(isolate);
     }
 
+    void buildObjectTemplate(DataType* tp, v8::Isolate* isolate, v8::Local<v8::ObjectTemplate>& templ) {
+        v8::HandleScope hs(isolate);
+
+        utils::Array<DataType*>& bases = tp->getBases();
+        for (DataType* b : bases) {
+            buildObjectTemplate(b, isolate, templ);
+        }
+        
+        utils::Array<DataTypeField>& fields = tp->getFields();
+        for (DataTypeField& f : fields) {
+            if (f.flags.use_v8_accessors == 0) {
+                // will be manually added to the object at conversion time
+                continue;
+            }
+
+            v8::Local<v8::External> fieldData = v8::External::New(isolate, &f);
+            v8::Local<v8::FunctionTemplate> getter = v8::FunctionTemplate::New(isolate, v8Getter, fieldData);
+            v8::Local<v8::FunctionTemplate> setter;
+            if (f.flags.is_readonly == 0) setter = v8::FunctionTemplate::New(isolate, v8Setter, fieldData);
+
+            templ->SetAccessorProperty(v8Str(isolate, f.name), getter, setter);
+        }
+        
+        utils::Array<Function*>& methods = tp->getMethods();
+        for (Function* m : methods) {
+            v8::Local<v8::External> methodData = v8::External::New(isolate, m);
+            templ->Set(v8Str(isolate, m->getName()), v8::FunctionTemplate::New(isolate, HostCallHandler, methodData));
+        }
+    }
 
 
     TypeScriptAPI::TypeScriptAPI() {
@@ -464,36 +493,15 @@ namespace t4ext {
             for (auto& it : m_typeMap) {
                 DataType* tp = it.second;
                 if (tp->isPrimitive() || tp->isArray() || tp->isFunction()) continue;
-                v8::EscapableHandleScope ehs(m_isolate);
-
+                
                 v8::Local<v8::ObjectTemplate> templ = v8::ObjectTemplate::New(m_isolate);
                 templ->SetInternalFieldCount(2); // engine object ptr, DataType ptr
-                
-                utils::Array<DataTypeField>& fields = tp->getFields();
-                for (DataTypeField& f : fields) {
-                    if (f.flags.use_v8_accessors == 0) {
-                        // will be manually added to the object at conversion time
-                        continue;
-                    }
 
-                    v8::Local<v8::External> fieldData = v8::External::New(m_isolate, &f);
-                    v8::Local<v8::FunctionTemplate> getter = v8::FunctionTemplate::New(m_isolate, v8Getter, fieldData);
-                    v8::Local<v8::FunctionTemplate> setter;
-                    if (f.flags.is_readonly == 0) setter = v8::FunctionTemplate::New(m_isolate, v8Setter, fieldData);
-
-                    templ->SetAccessorProperty(v8Str(m_isolate, f.name), getter, setter);
-                }
-                
-                utils::Array<Function*>& methods = tp->getMethods();
-                for (Function* m : methods) {
-                    v8::Local<v8::External> methodData = v8::External::New(m_isolate, m);
-                    templ->Set(v8Str(m_isolate, m->getName()), v8::FunctionTemplate::New(m_isolate, HostCallHandler, methodData));
-                }
-
-                templ->Set(v8Str(m_isolate, "__refresh"), v8::FunctionTemplate::New(m_isolate, ObjectRefresher));
+                buildObjectTemplate(tp, m_isolate, templ);
 
                 DataTypeData* d = new DataTypeData;
-                d->templ.Reset(m_isolate, ehs.Escape(templ));
+                d->templ.Reset(m_isolate, templ);
+                templ->Set(v8Str(m_isolate, "__refresh"), v8::FunctionTemplate::New(m_isolate, ObjectRefresher));
                 m_typeData[tp] = d;
             }
         }
