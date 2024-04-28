@@ -12,6 +12,7 @@
 
 namespace t4ext {
     constexpr bool mute_game_logs = true;
+    constexpr bool force_windowed = true;
 
     //
     // Debug logging hook
@@ -39,7 +40,7 @@ namespace t4ext {
     Application* (Application::*CreateApplication_orig)(undefined4);
     Application* __fastcall CreateApplication_detour(Application* app, void* _EDX, undefined4 p1) {
         (app->*CreateApplication_orig)(p1);
-        app->wantsFullScreen = false;
+        if constexpr (force_windowed) app->wantsFullScreen = false;
         return app;
     }
 
@@ -186,6 +187,15 @@ namespace t4ext {
         gClient::Get()->onActorCollision(self, collidedWith);
     }
 
+    //
+    // Actor updates
+    //
+    void (CActor::*onActorUpdate_orig)(f32);
+    void __fastcall onActorUpdate_detour(CActor* self, void* _EDX, f32 dt) {
+        gClient::Get()->onActorUpdate(self, dt);
+        (self->*onActorUpdate_orig)(dt);
+    }
+
 
     //
     // Hooks
@@ -245,11 +255,16 @@ namespace t4ext {
         MH_CreateHook((LPVOID)0x00521f80, (LPVOID)&onActorCollision_detour, (LPVOID*)&onActorCollision_orig);
         MH_EnableHook((LPVOID)0x00521f80);
 
+        // Hook Actor updates
+        MH_CreateHook((LPVOID)0x0051f410, (LPVOID)&onActorUpdate_detour, (LPVOID*)&onActorUpdate_orig);
+        MH_EnableHook((LPVOID)0x0051f410);
+
         InstallD3DHooks();
     }
 
     void UninstallHooks() {
         UninstallD3DHooks();
+        MH_RemoveHook((LPVOID)0x0051f410);
         MH_RemoveHook((LPVOID)0x00521f80);
         MH_RemoveHook((LPVOID)0x005e10d0);
         MH_RemoveHook((LPVOID)0x005e0f20);

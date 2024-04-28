@@ -22,6 +22,7 @@
 #include <events/Log.h>
 #include <events/Keyboard.h>
 #include <events/ActorCollision.h>
+#include <events/ActorUpdate.h>
 #include <events/ActorAdded.h>
 
 #include <utils/Singleton.hpp>
@@ -88,6 +89,7 @@ namespace t4ext {
         utils::Singleton<LogEventType>::Destroy();
         utils::Singleton<KeyboardEventType>::Destroy();
         utils::Singleton<ActorCreateEventType>::Destroy();
+        utils::Singleton<ActorUpdateEventType>::Destroy();
         utils::Singleton<ActorDestroyEventType>::Destroy();
         utils::Singleton<LevelCreateEventType>::Destroy();
         utils::Singleton<LevelSpawnEventType>::Destroy();
@@ -132,6 +134,7 @@ namespace t4ext {
         utils::Singleton<LevelSpawnEventType>::Create();
         utils::Singleton<LevelCreateEventType>::Create();
         utils::Singleton<ActorDestroyEventType>::Create();
+        utils::Singleton<ActorUpdateEventType>::Create();
         utils::Singleton<ActorCreateEventType>::Create();
         utils::Singleton<KeyboardEventType>::Create();
         utils::Singleton<LogEventType>::Create();
@@ -328,6 +331,10 @@ namespace t4ext {
         // events
         m_scriptAPI->signalEventBatchStart();
         m_scriptAPI->waitForEventBatchCompletion();
+    }
+    
+    void Client::onActorUpdate(CActor* actor, f32 dt) {
+        m_scriptAPI->dispatchEvent(utils::Singleton<ActorUpdateEventType>::Get()->createEvent(actor, dt));
     }
     
     void Client::onActorDestroyed(CActor* actor) {

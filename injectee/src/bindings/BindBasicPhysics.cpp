@@ -11,7 +11,7 @@ namespace t4ext {
         tp->bind("field_0xC", &CBasicPhysics::field_0xC);
         tp->bind("field_0x10", &CBasicPhysics::field_0x10);
         tp->bind("field_0x14", &CBasicPhysics::field_0x14);
-        tp->bind("velocity", &CBasicPhysics::velocity)->setFlags(DataTypeField::Flags::IsReadOnly);
+        tp->bind("velocity", &CBasicPhysics::velocity);
         tp->bind("field_0x24", &CBasicPhysics::field_0x24);
         tp->bind("field_0x28", &CBasicPhysics::field_0x28);
         tp->bind("field_0x2C", &CBasicPhysics::field_0x2C);

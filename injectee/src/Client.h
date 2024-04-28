@@ -35,6 +35,7 @@ namespace t4ext {
             void onDeviceReset(d3dDevice* device);
             void onEngineCreated(CGame* engine);
             void onActorCreated(CActor* actor);
+            void onActorUpdate(CActor* actor, f32 dt);
             void onActorDestroyed(CActor* actor);
             void onActorAddedToLevel(CLevel* level, CActor* actor);
             void onLevelCreated(CLevel* level);

@@ -1,6 +1,7 @@
 #pragma once
 #include <types.h>
 #include <script/IScriptAPI.h>
+#include <core/Vector.hpp>
 
 #include <utils/Math.hpp>
 #include <utils/Array.h>
@@ -43,9 +44,7 @@ namespace t4ext {
     };
     
     struct UnkClass5 {
-        undefined4 field0_0x0;
-        f32 gravity;
-        undefined4 field2_0x8;
+        utils::vec3f gravity;
         f32 field3_0xc;
         f32 field4_0x10;
         undefined4 field5_0x14;
@@ -116,15 +115,17 @@ namespace t4ext {
             CActor* spawnActor(CActor* actor, i32 p2);
             CActor* spawnActorAtPosition(i32 p1, const char* type, const char* path, const utils::vec3f& pos, i32 p5);
             utils::Array<CCamera*>* getCameras();
+            utils::Array<CActor*>* getUpdateActors();
+            utils::Array<CActor*>* getActors();
 
             u32 addActorAddedListener(Callback<void, CActor*>& cb);
             void removeActorAddedListener(u32 listenerId);
 
             virtual void method_0x0();
 
-            undefined4 field1_0x4;
-            undefined4 field2_0x8;
-            undefined4 field3_0xc;
+            f32 someTimeRemaining;
+            f32 someTimeWarp0;
+            f32 someTimeWarp1;
             undefined4 field4_0x10;
             undefined4 field5_0x14;
             undefined4 field6_0x18;
@@ -137,33 +138,21 @@ namespace t4ext {
             undefined4 field13_0xb4;
             undefined4 field14_0xb8;
             undefined4 field15_0xbc;
-            CCamera **camerasBegin;
-            CCamera **camerasEnd;
-            undefined4 field18_0xc8;
+            Vector<CCamera*> cameras;
             undefined4 field19_0xcc;
             undefined4 field20_0xd0;
             undefined4 field21_0xd4;
-            undefined4 field22_0xd8;
-            undefined4 field23_0xdc;
-            undefined4 field24_0xe0;
+            Vector<undefined4> someList0;
             undefined4 field25_0xe4;
-            undefined4 field26_0xe8;
-            undefined4 field27_0xec;
-            CActor *field28_0xf0;
-            CActor *field29_0xf4;
-            f32 field30_0xf8;
-            UnkClass2 *field31_0xfc;
-            f32 *field32_0x100;
-            undefined4 field33_0x104;
-            undefined4 field34_0x108;
+            Vector<undefined4> someList1;
+            Vector<CActor *> updateActors;
+            Vector<undefined4> someList2;
             undefined4 field35_0x10c;
-            void* field36_0x110; // it's a function
+            CCamera* maybeActiveCamera;
             f32 field37_0x114;
-            undefined4 field38_0x118;
-            undefined4 field39_0x11c;
-            undefined4 field40_0x120;
+            Vector<CActor *> actorVec;
             undefined4 field41_0x124;
-            f32 field42_0x128;
+            f32 someTimeElapsed;
             UnkClass8 *field43_0x12c;
             CActor* levelActor;
             undefined4 field45_0x134;
@@ -497,7 +486,8 @@ namespace t4ext {
             undefined4 field373_0x2dc;
             undefined4 field374_0x2e0;
             undefined4 field375_0x2e4;
-            undefined4 field376_0x2e8;
+            bool32 isDead;
             undefined4 field377_0x2ec;
     };
+    static_assert(sizeof(CLevel) == 0x2f0, "sizeof(CActor) != 0x2f0");
 };

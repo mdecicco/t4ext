@@ -37,15 +37,34 @@ namespace t4ext {
     }
 
     utils::Array<CCamera*>* CLevel::getCameras() {
-        if (!camerasBegin) return nullptr;
+        u32 sz = cameras.size();
+        if (sz == 0) return nullptr;
         
         utils::Array<CCamera*>* arr = new utils::Array<CCamera*>();
 
-        CCamera** c = camerasBegin;
-        while (c != camerasEnd) {
-            arr->push(*c);
-            c++;
-        }
+        for (u32 i = 0;i < sz;i++) arr->push(cameras[i]);
+
+        return arr;
+    }
+
+    utils::Array<CActor*>* CLevel::getUpdateActors() {
+        u32 sz = updateActors.size();
+        if (sz == 0) return nullptr;
+        
+        utils::Array<CActor*>* arr = new utils::Array<CActor*>();
+
+        for (u32 i = 0;i < sz;i++) arr->push(updateActors[i]);
+
+        return arr;
+    }
+
+    utils::Array<CActor*>* CLevel::getActors() {
+        u32 sz = actorVec.size();
+        if (sz == 0) return nullptr;
+        
+        utils::Array<CActor*>* arr = new utils::Array<CActor*>();
+
+        for (u32 i = 0;i < sz;i++) arr->push(actorVec[i]);
 
         return arr;
     }

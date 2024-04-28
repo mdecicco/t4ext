@@ -505,6 +505,7 @@ namespace t4ext {
         api->bind<u64>("u64");
         api->bind<f32>("f32");
         api->bind<f64>("f64");
+        api->bind<bool32>("bool32");
         api->bind<pointer>("pointer");
 
         BindMath(api);

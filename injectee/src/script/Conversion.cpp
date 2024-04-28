@@ -183,7 +183,8 @@ namespace t4ext {
         v8::Isolate* isolate,
         utils::String& failurePath,
         utils::String& failureReason,
-        DataTypeField* selfField
+        DataTypeField* selfField,
+        bool isForArgument
     ) {
         if (in.IsEmpty() || in->IsNull() || in->IsUndefined()) {
             if (expectsPtr) {
@@ -196,7 +197,7 @@ namespace t4ext {
             return false;
         }
         
-        if (!expectsPtr && tp->getSize() > sizeof(void*)) {
+        if (!expectsPtr && isForArgument && tp->getSize() > sizeof(void*)) {
             failureReason = "Expected value type is wider than a void*, this is currently unsupported behavior";
             return false;
         }

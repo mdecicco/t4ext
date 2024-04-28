@@ -1,5 +1,6 @@
 #include <core/CActor.h>
 #include <events/ActorCollision.h>
+#include <events/ActorUpdate.h>
 #include <utils/Singleton.hpp>
 
 #include <string.h>
@@ -34,7 +35,8 @@ namespace t4ext {
     }
 
     bool CActor::isVisible() {
-        return (flags0 & 0b00000000000000000000000001000000) == 1;
+        // return (flags0 & 0b00000000000000000000000001000000) == 1;
+        return maybeIsVisible;
     }
     
     CActor* CActor::getPrev() {
@@ -51,5 +53,26 @@ namespace t4ext {
 
     void CActor::removeCollisionListener(u32 listenerId) {
         utils::Singleton<ActorCollisionEventType>::Get()->removeListener(listenerId);
+    }
+    
+    u32 CActor::addUpdateListener(Callback<void, f32>& cb) {
+        return utils::Singleton<ActorUpdateEventType>::Get()->createListener(this, cb);
+    }
+
+    void CActor::removeUpdateListener(u32 listenerId) {
+        utils::Singleton<ActorUpdateEventType>::Get()->removeListener(listenerId);
+    }
+    
+    utils::Array<CActor*>* CActor::getChildren() {
+        if (!firstChild) return nullptr;
+        utils::Array<CActor*>* children = new utils::Array<CActor*>(childCount);
+        
+        CActor* c = firstChild;
+        while (c) {
+            children->push(c);
+            c = c->next;
+        }
+
+        return children;
     }
 };

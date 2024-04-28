@@ -458,12 +458,8 @@ namespace t4ext {
         utils::Singleton<TimeoutEventType>::Get()->processTimeouts();
         
         std::unique_lock<std::mutex> lock(m_batchMutex);
-        m_batchCondition.wait_for(lock, std::chrono::seconds(4), [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
+        m_batchCondition.wait(lock, [this](){ return m_batchFlag == true || m_shouldTerminate == true; });
         if (m_batchFlag == false || m_shouldTerminate) {
-            // either the game crashed or something else... In any case, we shouldn't
-            // have been waiting this long. Let's get out of here
-            error("Game has become unresponsive, terminating script thread so it can die");
-            m_shouldTerminate = true;
             return true;
         }
 
@@ -536,6 +532,6 @@ namespace t4ext {
     void IScriptAPI::waitForEventBatchCompletion() {
         if (m_shouldTerminate) return;
         std::unique_lock<std::mutex> lock(m_batchMutex);
-        m_batchCondition.wait(lock, [this](){ return m_batchFlag == false; });
+        m_batchCondition.wait_for(lock, std::chrono::milliseconds(16), [this](){ return m_batchFlag == false; });
     }
 };

@@ -2,6 +2,8 @@
 #include <types.h>
 #include <utils/Math.hpp>
 #include <script/IScriptAPI.h>
+#include <core/Vector.hpp>
+#include <core/List.hpp>
 
 namespace t4ext {
     class CLevel;
@@ -21,6 +23,41 @@ namespace t4ext {
         f32 field_0x34;
         f32 field_0x38;
     };
+
+    struct UnkClass20 {
+        undefined4 field_0x0;
+        f32 maybeTimeRemaining;
+        undefined4 field_0x8;
+        Vector<undefined4*> field_0xC;
+    };
+
+    struct MaybeVariablesData {
+        utils::vec3f* spin;
+        undefined4 field_0x4;
+        undefined4 field_0x8;
+        undefined4 field_0xc;
+        i32	a_mt;
+        undefined4 field_0x14;
+        undefined field_0x18;
+        undefined field_0x19;
+        undefined field_0x1a;
+        undefined field_0x1b;
+        undefined4 field_0x1c;
+        undefined4 field_0x20;
+        undefined4 field_0x24;
+        undefined4 field_0x28;
+        undefined4 field_0x2c;
+        undefined4 field_0x30;
+        undefined4 field_0x34;
+        i32	pathId;
+        undefined4 field_0x3c;
+        undefined4 field_0x40;
+        undefined4 field_0x44;
+        undefined4 field_0x48;
+        undefined4 field_0x4c;
+        undefined4 field_0x50;
+    };
+    static_assert(sizeof(MaybeVariablesData) == 0x54, "sizeof(MaybeVariablesData) != 0x54");
 
     class CActorTypeInfo;
 
@@ -128,6 +165,9 @@ namespace t4ext {
             CActor* getNext();
             u32 addCollisionListener(CActor* whenCollidingWith, Callback<void, CActor*, CActor*>& cb);
             void removeCollisionListener(u32 listenerId);
+            u32 addUpdateListener(Callback<void, f32>& cb);
+            void removeUpdateListener(u32 listenerId);
+            utils::Array<CActor*>* getChildren();
 
             undefined4 field_0x4;
             undefined4 field_0x8;
@@ -140,7 +180,7 @@ namespace t4ext {
             bool isEnabled;
             undefined field_0x1F;
             undefined field_0x20;
-            undefined field_0x21;
+            bool field_0x21;
             undefined field_0x22;
             u8 actorFlags;
             u32 type;
@@ -158,72 +198,53 @@ namespace t4ext {
             u8 nudge;
             undefined field_0x52;
             undefined field_0x53;
-            undefined field_0x54;
+            bool maybeDidUpdate;
             undefined field_0x55;
-            undefined field_0x56;
+            bool maybeIsVisible;
             undefined field_0x57;
-            f32 field_0x58;
+            u8 maybeTimestampIdx;
+            undefined field_0x59;
+            undefined field_0x60;
+            undefined field_0x61;
             char* actorName;
             char* typeName;
-            undefined field_0x64;
-            undefined field_0x65;
-            undefined field_0x66;
-            undefined field_0x67;
-            undefined field_0x68;
-            undefined field_0x69;
-            undefined field_0x6A;
-            undefined field_0x6B;
-            undefined field_0x6C;
-            undefined field_0x6D;
-            undefined field_0x71;
-            undefined field_0x72;
-            undefined field_0x73;
-            undefined4 field_0x74;
-            undefined field_0x78;
-            undefined field_0x79;
-            undefined field_0x7A;
-            undefined field_0x7B;
+            CActor* parent;
+            undefined4 field_0x68;
+            CActor* firstChild;
+            CActor* lastChild;
+            u32 childCount;
+            undefined4 field_0x78;
             utils::vec3f scale;
             char* geometryFileName;
-            undefined4 field_0x8C;
-            undefined4 field_0x90;
-            undefined4 field_0x94;
-            undefined4 field_0x98;
-            undefined4 field_0x9C;
-            undefined4 field_0xA0;
-            undefined4 field_0xA4;
+            f32* field_0x8C;
+            utils::vec3f field_0x90;
+            utils::vec3f rotationEuler_driven;
             undefined4 field_0xA8;
-            undefined4 field_0xAC;
-            undefined4 field_0xB0;
-            undefined4 field_0xB4;
-            undefined4 field_0xB8;
-            undefined4 field_0xBC;
-            undefined4 field_0xC0;
-            undefined4 field_0xC4;
-            undefined4 field_0xC8;
+            utils::vec3f prevPosition;
+            utils::vec3f prevVelocity;
+            f32 field_0xC4;
+            f32 field_0xC8;
             undefined4 field_0xCC;
             undefined4 field_0xD0;
             undefined4 field_0xD4;
             undefined4 field_0xD8;
-            u32 unknownFlag;
+            bool32 usingQuatRotation;
             utils::quatf rotationQuat;
             utils::vec3f rotationEuler;
             CBasicPhysics* basicPhysics;
             undefined4 field_0x100;
-            utils::vec3f field_0x104;
-            undefined4 field_0x110;
-            undefined4 field_0x114;
-            undefined4 field_0x118;
+            utils::vec3f deltaPos;
+            utils::vec3f field_0x110;
             undefined4 field_0x11C;
             undefined4 field_0x120;
             undefined4 field_0x124;
             undefined4 field_0x128;
             i32 mode;
             utils::mat4f transform;
-            utils::mat4f field_0x170; // possibly inverse transform
+            utils::mat4f maybeInverseTransform;
             undefined4 field_0x1B0;
             undefined4 field_0x1B4;
-            undefined4 field_0x1B8;
+            f32 field_0x1B8;
             undefined4 field_0x1BC;
             undefined4 field_0x1C0;
             undefined4 field_0x1C4;
@@ -238,7 +259,7 @@ namespace t4ext {
             undefined* actorHealthObject;
             undefined4 field_0x1EC;
             undefined4 field_0x1F0;
-            undefined4 field_0x1F4;
+            MaybeVariablesData* maybeVariables;
             undefined4 field_0x1F8;
             undefined4 field_0x1FC;
             undefined4 field_0x200;
@@ -251,9 +272,7 @@ namespace t4ext {
             undefined4 field_0x21c;
             undefined4 field_0x220;
             undefined4 field_0x224;
-            undefined4 field_0x228;
-            undefined4 field_0x22c;
-            undefined4 field_0x230;
+            ListNode<undefined4*> someListNode;
     };
     static_assert(sizeof(CActor) == 0x234, "sizeof(CActor) != 0x234");
 };

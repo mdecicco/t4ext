@@ -47,7 +47,8 @@ namespace t4ext {
         v8::Isolate* isolate,
         utils::String& failurePath,
         utils::String& failureReason,
-        DataTypeField* selfField = nullptr
+        DataTypeField* selfField = nullptr,
+        bool isForArgument = false
     );
     void specifyThisPointer(v8::Local<v8::Object>& onObject, void* thisPointer, DataType* type, v8::Isolate* isolate);
     void* extractThisPointer(const v8::Local<v8::Object>& maybeThisObj, v8::Isolate* isolate, DataType** outDataType = nullptr);

@@ -55,13 +55,13 @@ namespace t4ext {
         auto it = m_listenerMap.find(id);
         if (it == m_listenerMap.end()) return;
 
-        m_listenerMap.erase(it);
-
         LogListener* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_listeners == n) m_listeners = n->m_next;
         if (m_lastListener == n) m_lastListener = n->m_last;
+
+        m_listenerMap.erase(it);
 
         delete n;
     }
@@ -69,8 +69,9 @@ namespace t4ext {
     void LogEventType::notifyListeners(LogEvent* log) {
         LogListener* n = m_listeners;
         while (n) {
+            LogListener* next = n->m_next;
             n->execute(log);
-            n = n->m_next;
+            n = next;
         }
     }
 

@@ -58,7 +58,7 @@ namespace t4ext {
             }
 
             utils::String failurePath = info.name, failureReason;
-            if (!convertFromV8(&tempValueStorage[i + 1], callInfo[i], info.type, info.flags.is_pointer, allocs, isolate, failurePath, failureReason)) {
+            if (!convertFromV8(&tempValueStorage[i + 1], callInfo[i], info.type, info.flags.is_pointer, allocs, isolate, failurePath, failureReason, nullptr, true)) {
                 gClient::Get()->log(
                     "The exception that should follow this message occurred while passing argument '%s' to function '%s::%s'",
                     info.name.c_str(), sig.getThisTp()->getName().c_str(), target->getName().c_str()
@@ -163,7 +163,7 @@ namespace t4ext {
             }
 
             utils::String failurePath = info.name, failureReason;
-            if (!convertFromV8(&tempValueStorage[i], callInfo[i], info.type, info.flags.is_pointer, allocs, isolate, failurePath, failureReason)) {
+            if (!convertFromV8(&tempValueStorage[i], callInfo[i], info.type, info.flags.is_pointer, allocs, isolate, failurePath, failureReason, nullptr, true)) {
                 gClient::Get()->log(
                     "The exception that should follow this message occurred while passing argument '%s' to function '%s'",
                     info.name.c_str(), target->getName().c_str()

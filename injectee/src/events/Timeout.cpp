@@ -53,13 +53,13 @@ namespace t4ext {
         auto it = m_timeoutMap.find(id);
         if (it == m_timeoutMap.end()) return;
 
-        m_timeoutMap.erase(it);
-
         ITimeoutData* n = it->second;
         if (n->m_last) n->m_last->m_next = n->m_next;
         if (n->m_next) n->m_next->m_last = n->m_last;
         if (m_timeouts == n) m_timeouts = nullptr;
         if (m_lastTimeout == n) m_lastTimeout = n->m_last;
+
+        m_timeoutMap.erase(it);
 
         delete n;
     }
